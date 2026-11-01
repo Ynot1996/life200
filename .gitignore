@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+dist/
+*.egg-info/
+
+# Node
+node_modules/
+.next/
+
+# Env & secrets — never commit these
+.env
+.env.*
+!.env.example
+
+# Local data (uploaded CVs, generated files)
+data/
+storage/
+
+# OS / editors
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/settings.json

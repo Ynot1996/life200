@@ -1,0 +1,46 @@
+[project]
+name = "life200"
+version = "0.1.0"
+description = "Life200 — job-search co-pilot: one master profile, JD-tailored CVs, tracked applications."
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "pydantic>=2.9",
+    "pydantic-settings>=2.6",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-cov>=6.0",
+    "httpx>=0.28",
+    "mypy>=1.13",
+    "ruff>=0.8",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/life200"]
+
+# ---------- Tooling ----------
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+# E/F: pycodestyle + pyflakes, I: import order, UP: modern syntax, B: bugbear,
+# SIM: simplifications, N: naming, RUF: ruff-specific, PT: pytest style
+select = ["E", "F", "I", "UP", "B", "SIM", "N", "RUF", "PT"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+plugins = ["pydantic.mypy"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers --cov=life200 --cov-report=term-missing"
