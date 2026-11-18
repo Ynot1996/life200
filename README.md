@@ -1,8 +1,11 @@
 # Life200
 
-A job-search co-pilot. Life200 keeps **one master profile** of everything you have done,
-finds matching roles across job boards, drafts a **JD-tailored CV and answers** for each one,
-pre-fills the application form, and tracks every application — while **you** review and press submit.
+A job-search co-pilot for the UK, in two halves on one job-data pipeline:
+
+- **Find:** new jobs from several platforms in one sortable table, each tagged with whether
+  the employer holds a visa-sponsor licence and whether the role is truly junior.
+- **Apply:** one master profile of everything you have done, a JD-tailored CV and answers for
+  each role, a pre-filled application form, and a tracker — while **you** review and press submit.
 
 > **Design rule:** the LLM may *select, reorder and reword* facts from the master profile.
 > It may never *add* one. Every tailored CV passes a deterministic fact check
@@ -10,19 +13,25 @@ pre-fills the application form, and tracks every application — while **you** r
 
 ## Status
 
-Phase 0 (foundation) complete — see [ROADMAP.md](ROADMAP.md).
+Phase 0 (foundation) complete. Next: Phase 1, job data and sponsor match.
+
+- [ROADMAP.md](ROADMAP.md) — phases
+- [docs/product/brief.md](docs/product/brief.md) — what the product is and who it is for
+- [docs/product/backlog.md](docs/product/backlog.md) — stories and the current sprint
+- [docs/learning/](docs/learning/README.md) — short lessons, one idea each
 
 ## Tech stack
 
 | Layer | Choice | Why |
 |---|---|---|
-| Language | Python 3.12 | Most-requested backend/AI language in UK job ads |
+| Language | Python 3.12 | One language for the API, data science and AI |
+| Data science | pandas, scikit-learn, Jupyter | Market analysis and the truly-junior classifier |
 | API | FastAPI + Pydantic v2 | Typed, async, auto-generated OpenAPI docs |
 | Database | PostgreSQL 16 + pgvector | One store for relational data and embeddings |
 | ORM / migrations | SQLAlchemy 2.0 + Alembic | Industry standard for Python + Postgres |
 | Background jobs | Celery + Redis | Scheduled job search, LLM calls, form filling |
 | Browser automation | Playwright | Pre-filling application forms |
-| Frontend | Next.js + TypeScript + Tailwind | Review workspace: side-by-side CV diff and inline edit |
+| Frontend | Streamlit | Jobs table, charts and CV review, all in Python |
 | Tooling | uv, ruff, mypy (strict), pytest, pre-commit | Fast, modern Python toolchain |
 | Infra | Docker Compose, GitHub Actions | Reproducible local dev and CI on every push |
 
@@ -34,9 +43,9 @@ brew install uv                       # Python package/project manager
 brew install --cask docker            # or OrbStack — runs Postgres + Redis
 uv tool install pre-commit
 
-cd life200
+cd ~/Desktop/Applications/life200     # every command below runs from here
 cp .env.example .env                  # fill in API keys later
-git init && pre-commit install
+pre-commit install
 
 make install                          # creates backend/.venv and uv.lock
 make check                            # lint + type check + tests (same as CI)
@@ -57,10 +66,11 @@ life200/
 │   │   ├── domain/     Pydantic models — the language of the business
 │   │   └── services/   business logic (fact guard, tailoring, matching…)
 │   └── tests/
-├── frontend/           Next.js review workspace (Phase 4)
+├── frontend/           Streamlit app (Phase 3)
 ├── docs/
 │   ├── architecture.md
-│   └── learning/       one lesson per concept, written as the code is built
+│   ├── product/        brief and backlog
+│   └── learning/       short lessons, one idea each
 ├── docker-compose.yml
 └── Makefile
 ```
