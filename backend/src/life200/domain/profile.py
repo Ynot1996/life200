@@ -34,6 +34,7 @@ class SkillCategory(StrEnum):
     CLOUD = "cloud"
     DOMAIN = "domain"
     METHOD = "method"
+    SOFT = "soft"
 
 
 class Skill(DomainModel):

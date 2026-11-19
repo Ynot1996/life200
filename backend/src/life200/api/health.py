@@ -16,3 +16,8 @@ class HealthResponse(BaseModel):
 @router.get("/health")
 def health() -> HealthResponse:
     return HealthResponse(status="ok", version=__version__)
+
+
+@router.get("/version")
+def version() -> dict[str, str]:
+    return {"version": __version__}
