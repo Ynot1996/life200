@@ -8,13 +8,13 @@ Goal: real jobs in the database, each tagged with whether the employer holds a s
 
 | # | Story | Done when | Size |
 |---|---|---|---|
-| 1 | Fetch Adzuna jobs into Postgres | One command saves jobs with title, employer, salary, location, date, URL and source | 5 |
-| 2 | No duplicates | Fetching twice leaves the row count unchanged | 3 |
+| 1 | ✅ Fetch Adzuna jobs into Postgres | One command saves jobs with title, employer, salary, location, date, URL and source | 5 |
+| 2 | ✅ No duplicates | Fetching twice leaves the row count unchanged | 3 |
 | 3 | Load the sponsor register | Home Office CSV is in Postgres | 3 |
 | 4 | Tag each job's employer | "Monzo Bank Ltd" matches "MONZO BANK LIMITED"; 95 of 100 hand-checked tags are right | 5 |
 | 5 | First look at the data | A notebook showing the tagged jobs as a table, with the sponsor share | 2 |
 
-Needed first: Adzuna API key in `.env`, Docker running.
+Run: `make up`, `make migrate`, then `make fetch`.
 
 ## Next
 

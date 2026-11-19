@@ -39,6 +39,8 @@ build its own clean app.
 api/        endpoints: receive a request, call a service, return the answer
 services/   the actual logic
 domain/     data models
+sources/    job platforms (lesson 7)
+db/         database tables (lesson 8)
 core/       settings
 ```
 

@@ -57,4 +57,4 @@ starting point.
 
 ## Next
 
-Sprint 1 lessons: calling a job API with httpx, storing jobs in Postgres, then pandas.
+[Lesson 7](07-calling-an-api.md): calling a job API with httpx.

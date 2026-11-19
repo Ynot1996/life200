@@ -13,7 +13,7 @@ A job-search co-pilot for the UK, in two halves on one job-data pipeline:
 
 ## Status
 
-Phase 0 (foundation) complete. Next: Phase 1, job data and sponsor match.
+Phase 1 in progress: Adzuna jobs are fetched into Postgres without duplicates. Next: the Home Office sponsor register.
 
 - [ROADMAP.md](ROADMAP.md) — phases
 - [docs/product/brief.md](docs/product/brief.md) — what the product is and who it is for
@@ -25,6 +25,7 @@ Phase 0 (foundation) complete. Next: Phase 1, job data and sponsor match.
 | Layer | Choice | Why |
 |---|---|---|
 | Language | Python 3.12 | One language for the API, data science and AI |
+| Job data | httpx, Adzuna API | Fetching UK job postings, with retries |
 | Data science | pandas, scikit-learn, Jupyter | Market analysis and the truly-junior classifier |
 | API | FastAPI + Pydantic v2 | Typed, async, auto-generated OpenAPI docs |
 | Database | PostgreSQL 16 + pgvector | One store for relational data and embeddings |
@@ -40,7 +41,7 @@ Phase 0 (foundation) complete. Next: Phase 1, job data and sponsor match.
 ```bash
 # one-time
 brew install uv                       # Python package/project manager
-brew install --cask docker            # or OrbStack — runs Postgres + Redis
+brew install --cask orbstack          # runs Postgres + Redis in Docker
 uv tool install pre-commit
 
 cd ~/Desktop/Applications/life200     # every command below runs from here
@@ -49,7 +50,9 @@ pre-commit install
 
 make install                          # creates backend/.venv and uv.lock
 make check                            # lint + type check + tests (same as CI)
-make up                               # start Postgres + Redis
+make up                               # start Postgres + Redis (needs Docker or OrbStack)
+make migrate                          # create the database tables
+make fetch                            # fetch jobs from Adzuna (keys in .env)
 make dev                              # API on http://localhost:8000/docs
 ```
 
@@ -63,8 +66,12 @@ life200/
 │   ├── src/life200/
 │   │   ├── api/        HTTP routes (thin: validate input, call services)
 │   │   ├── core/       config, logging, shared infrastructure
+│   │   ├── db/         database tables and connection (SQLAlchemy)
 │   │   ├── domain/     Pydantic models — the language of the business
-│   │   └── services/   business logic (fact guard, tailoring, matching…)
+│   │   ├── services/   business logic (fact guard, saving jobs, matching…)
+│   │   ├── sources/    one module per job platform (Adzuna now, Reed later)
+│   │   └── cli.py      command line: `make fetch`
+│   ├── migrations/     Alembic scripts that change the database
 │   └── tests/
 ├── frontend/           Streamlit app (Phase 3)
 ├── docs/
