@@ -13,7 +13,14 @@ A job-search co-pilot for the UK, in two halves on one job-data pipeline:
 
 ## Status
 
-Phase 1 in progress: Adzuna jobs are fetched into Postgres without duplicates. Next: the Home Office sponsor register.
+**MVP working.** `make refresh` collects UK junior tech jobs from Adzuna and tags each one:
+
+- **Sponsor:** licensed, likely, agency, paid course, or not found, matched against the Home
+  Office register of licensed sponsors.
+- **Level:** junior, unclear, or not junior, with the reason (title words, years of experience asked).
+
+`make app` opens the jobs table in the browser. Next: a second job source (Reed) and daily
+automatic refresh.
 
 - [ROADMAP.md](ROADMAP.md) — phases
 - [docs/product/brief.md](docs/product/brief.md) — what the product is and who it is for
@@ -33,6 +40,7 @@ Phase 1 in progress: Adzuna jobs are fetched into Postgres without duplicates. N
 | Background jobs | Celery + Redis | Scheduled job search, LLM calls, form filling |
 | Browser automation | Playwright | Pre-filling application forms |
 | Frontend | Streamlit | Jobs table, charts and CV review, all in Python |
+| Matching | rapidfuzz, pandas | Company names against the sponsor register; data for the table |
 | Tooling | uv, ruff, mypy (strict), pytest, pre-commit | Fast, modern Python toolchain |
 | Infra | Docker Compose, GitHub Actions | Reproducible local dev and CI on every push |
 
@@ -52,7 +60,8 @@ make install                          # creates backend/.venv and uv.lock
 make check                            # lint + type check + tests (same as CI)
 make up                               # start Postgres + Redis (needs Docker or OrbStack)
 make migrate                          # create the database tables
-make fetch                            # fetch jobs from Adzuna (keys in .env)
+make refresh                          # sponsor register + UK jobs from Adzuna, tagged (~3 min)
+make app                              # jobs table on http://localhost:8501
 make dev                              # API on http://localhost:8000/docs
 ```
 
@@ -68,12 +77,12 @@ life200/
 │   │   ├── core/       config, logging, shared infrastructure
 │   │   ├── db/         database tables and connection (SQLAlchemy)
 │   │   ├── domain/     Pydantic models — the language of the business
-│   │   ├── services/   business logic (fact guard, saving jobs, matching…)
-│   │   ├── sources/    one module per job platform (Adzuna now, Reed later)
-│   │   └── cli.py      command line: `make fetch`
+│   │   ├── services/   business logic (saving jobs, sponsor and seniority tags, fact guard)
+│   │   ├── sources/    job platforms (Adzuna) and the sponsor register
+│   │   ├── ui/         Streamlit jobs table (`make app`)
+│   │   └── cli.py      command line: `make refresh`, `make fetch`, `make sponsors`
 │   ├── migrations/     Alembic scripts that change the database
 │   └── tests/
-├── frontend/           Streamlit app (Phase 3)
 ├── docs/
 │   ├── architecture.md
 │   ├── product/        brief and backlog
@@ -81,6 +90,13 @@ life200/
 ├── docker-compose.yml
 └── Makefile
 ```
+
+## Known limits of the MVP
+
+- A sponsor **licence** means an employer can sponsor, not that it will for a given role.
+- Recruitment agencies hide the real employer, so their jobs are tagged "agency".
+- Adzuna descriptions are cut short, so an experience requirement late in a job ad can be missed.
+- Tags are rules, not machine learning yet; each one shows its reason so it can be checked.
 
 ## What Life200 deliberately does not do
 

@@ -28,7 +28,7 @@ def test_fetch_saves_jobs_and_reports(
     adzuna_response: dict[str, Any],
 ) -> None:
     class FakeClient:
-        def __init__(self, app_id: str, app_key: str) -> None:
+        def __init__(self, app_id: str, app_key: str, **kwargs: Any) -> None:
             assert app_key == "secret"
 
         def search(self, what: str, **kwargs: Any) -> Iterator[JobPosting]:
@@ -41,6 +41,10 @@ def test_fetch_saves_jobs_and_reports(
 
     assert cli.main(["fetch", "junior python", "--pages", "1"]) == 0
     assert "Fetched 3 jobs" in capsys.readouterr().out
+
+    monkeypatch.setattr(cli, "sponsors", lambda: 0)  # no download in tests
+    assert cli.main(["refresh", "--pages", "1"]) == 0
+    assert "Done" in capsys.readouterr().out
 
     # This test commits for real, so clean up for the other tests.
     with db_engine.begin() as conn:

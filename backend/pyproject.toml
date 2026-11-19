@@ -12,6 +12,9 @@ dependencies = [
     "sqlalchemy>=2.0",
     "psycopg[binary]>=3.2",
     "alembic>=1.14",
+    "rapidfuzz>=3.14.6",
+    "pandas>=3.1.1",
+    "streamlit>=1.67.0",
 ]
 
 [dependency-groups]
@@ -21,6 +24,7 @@ dev = [
     "httpx>=0.28",
     "mypy>=1.13",
     "ruff>=0.8",
+    "pandas-stubs>=3.1.0.261029",
 ]
 
 [build-system]
@@ -48,3 +52,7 @@ plugins = ["pydantic.mypy"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra --strict-markers --cov=life200 --cov-report=term-missing"
+
+[tool.coverage.run]
+# The Streamlit page is a thin layer over services/jobs_view.py, which is tested.
+omit = ["src/life200/ui/*"]
