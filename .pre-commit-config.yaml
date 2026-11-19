@@ -8,9 +8,19 @@ repos:
       - id: check-yaml
       - id: check-added-large-files
       - id: detect-private-key
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.8.4
+  # Uses the project's own ruff (from backend/uv.lock), so the hook, `make check` and CI
+  # always agree on formatting.
+  - repo: local
     hooks:
-      - id: ruff
-        args: [--fix]
+      - id: ruff-check
+        name: ruff check
+        entry: bash -c 'cd backend && uv run ruff check --fix .'
+        language: system
+        types: [python]
+        pass_filenames: false
       - id: ruff-format
+        name: ruff format
+        entry: bash -c 'cd backend && uv run ruff format .'
+        language: system
+        types: [python]
+        pass_filenames: false

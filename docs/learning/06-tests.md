@@ -46,6 +46,10 @@ def test_extract_numbers(text, expected):
 | mypy | Type hints are consistent |
 | pytest | Tests pass |
 
+Before every commit: `make fmt`, then `make check`. The pre-commit hook from lesson 1 runs
+ruff for you on `git commit`; if it changes a file, the commit stops, and you `git add` the
+file and commit again.
+
 ## Try it
 
 Write a test for the `GET /version` endpoint from lesson 3. Copy `tests/test_health.py` as a
