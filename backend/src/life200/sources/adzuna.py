@@ -65,26 +65,41 @@ class AdzunaClient:
         http: httpx.Client | None = None,
         max_retries: int = 3,
         backoff_seconds: float = 2.0,
+        page_delay_seconds: float = 0.0,
     ) -> None:
         self._auth = {"app_id": app_id, "app_key": app_key}
         self._http = http or httpx.Client(timeout=20)
         self._max_retries = max_retries
         self._backoff = backoff_seconds
+        self._page_delay = page_delay_seconds  # pause between pages to respect rate limits
 
     def search(
-        self, what: str, where: str = "London", pages: int = 1, max_days_old: int | None = None
+        self,
+        what: str,
+        where: str | None = "London",
+        pages: int = 1,
+        max_days_old: int | None = None,
+        category: str | None = None,
     ) -> Iterator[JobPosting]:
-        """Yield jobs page by page. Stops early when a page comes back short."""
+        """Yield jobs page by page. Stops early when a page comes back short.
+
+        `where=None` searches the whole UK. `category` is an Adzuna tag such as "it-jobs".
+        """
         for page in range(1, pages + 1):
+            if page > 1 and self._page_delay:
+                time.sleep(self._page_delay)
             params: dict[str, str | int] = {
                 **self._auth,
                 "what": what,
-                "where": where,
                 "results_per_page": MAX_PER_PAGE,
                 "sort_by": "date",
             }
+            if where:
+                params["where"] = where
             if max_days_old is not None:
                 params["max_days_old"] = max_days_old
+            if category:
+                params["category"] = category
             results = self._get(f"{BASE_URL}/{page}", params)["results"]
             log.info("adzuna page %d: %d jobs", page, len(results))
             yield from (parse_job(item) for item in results)

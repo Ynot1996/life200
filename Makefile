@@ -2,7 +2,7 @@ WHAT ?= junior software engineer
 WHERE ?= London
 PAGES ?= 1
 
-.PHONY: up down install dev migrate fetch test lint fmt typecheck check
+.PHONY: up down install dev app refresh sponsors migrate fetch test lint fmt typecheck check
 
 up:          ## Start Postgres + Redis
 	docker compose up -d
@@ -12,6 +12,12 @@ install:     ## Install backend deps
 	cd backend && uv sync
 dev:         ## Run API with hot reload
 	cd backend && uv run uvicorn life200.main:app --reload
+app:         ## Open the jobs table in the browser
+	cd backend && uv run streamlit run src/life200/ui/app.py
+refresh:     ## Sponsor register + all default searches + tagging
+	cd backend && uv run python -m life200.cli refresh
+sponsors:    ## Download the latest sponsor register
+	cd backend && uv run python -m life200.cli sponsors
 migrate:     ## Apply database migrations
 	cd backend && uv run alembic upgrade head
 fetch:       ## Fetch jobs from Adzuna. Override: make fetch WHAT="data analyst" PAGES=3

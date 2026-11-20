@@ -10,7 +10,7 @@ wants the product, and its job data feeds the apply assistant that follows.
 | # | Phase | Delivers | You learn |
 |---|---|---|---|
 | 0 | **Foundation** ✅ | Repo, tooling, CI, health API, master-profile schema, fact guard | Project layout, uv, Pydantic, pytest, typing |
-| 1 | **Job data + sponsor match** | Adzuna postings in Postgres, deduped; Home Office sponsor register loaded; employers matched; notebook answering "what share of junior postings come from licensed sponsors?" | httpx, SQLAlchemy 2.0, Alembic, pandas, Jupyter, fuzzy matching |
+| 1 | **Job data + sponsor match** ✅ | Adzuna postings in Postgres, deduped; Home Office sponsor register loaded; employers matched; notebook answering "what share of junior postings come from licensed sponsors?" | httpx, SQLAlchemy 2.0, Alembic, pandas, Jupyter, fuzzy matching |
 | 2 | **Market analysis** | Hand-labelled set; "truly junior" classifier vs a baseline; skills demand; salary estimate | Labelling, scikit-learn, evaluation, statistics, statsmodels |
 | 3 | **Public insights page** | Deployed page with filtered role list and charts; daily collection; weekly email; visitor analytics | Celery + Redis scheduling, Streamlit, deployment, product analytics |
 | 4 | **Master profile** | Upload past CVs (PDF/DOCX) → LLM extracts achievements → review and merge into Postgres | File uploads, structured LLM output |

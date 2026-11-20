@@ -4,11 +4,11 @@ A table class describes the columns; Alembic turns changes to these classes into
 migrations (versioned scripts that change the real database).
 """
 
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import JSON, DateTime, Numeric, String, Text, UniqueConstraint, func
+from sqlalchemy import JSON, Date, DateTime, Float, Numeric, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -41,3 +41,25 @@ class JobPostingRow(Base):
     raw: Mapped[dict[str, Any]] = mapped_column(JSON().with_variant(JSONB(), "postgresql"))
     first_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     last_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    # Filled in by services/tagging.py after each fetch.
+    sponsor_status: Mapped[str | None] = mapped_column(String(16))  # see SponsorStatus
+    sponsor_match: Mapped[str | None] = mapped_column(Text)  # register name it matched
+    sponsor_score: Mapped[float | None] = mapped_column(Float)  # 0-100 name similarity
+    seniority: Mapped[str | None] = mapped_column(String(16))  # see Seniority
+    seniority_reason: Mapped[str | None] = mapped_column(Text)
+
+
+class SponsorRow(Base):
+    """One row of the Home Office register of licensed sponsors (workers)."""
+
+    __tablename__ = "sponsors"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(Text)
+    name_key: Mapped[str] = mapped_column(Text, index=True)  # normalised for matching
+    town: Mapped[str | None] = mapped_column(Text)
+    county: Mapped[str | None] = mapped_column(Text)
+    rating: Mapped[str] = mapped_column(Text)  # e.g. "Worker (A rating)"
+    route: Mapped[str] = mapped_column(Text)  # e.g. "Skilled Worker"
+    register_date: Mapped[date] = mapped_column(Date)

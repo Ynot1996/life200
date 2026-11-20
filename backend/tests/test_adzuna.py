@@ -67,6 +67,34 @@ def test_search_sends_auth_and_query(adzuna_response: dict[str, Any]) -> None:
     assert params["max_days_old"] == "7"
 
 
+def test_whole_uk_search_in_a_category(adzuna_response: dict[str, Any]) -> None:
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, json=adzuna_response)
+
+    list(make_client(handler).search("junior", where=None, category="it-jobs"))
+    assert "where" not in seen[0].url.params
+    assert seen[0].url.params["category"] == "it-jobs"
+
+
+def test_pauses_between_pages(monkeypatch: pytest.MonkeyPatch) -> None:
+    full_page = {"results": [{"id": str(i), "title": "t", "redirect_url": "u"} for i in range(50)]}
+    sleeps: list[float] = []
+    monkeypatch.setattr("life200.sources.adzuna.time.sleep", sleeps.append)
+    client = AdzunaClient(
+        "id",
+        "key",
+        http=httpx.Client(
+            transport=httpx.MockTransport(lambda r: httpx.Response(200, json=full_page))
+        ),
+        page_delay_seconds=3,
+    )
+    assert len(list(client.search("x", pages=2))) == 100
+    assert sleeps == [3]
+
+
 def test_search_stops_when_a_page_is_short(adzuna_response: dict[str, Any]) -> None:
     calls = 0
 
