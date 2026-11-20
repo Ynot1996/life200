@@ -17,7 +17,7 @@ A job-search co-pilot for junior and intern roles in the UK, Singapore, Japan an
 
 - **Matches and apply:** your best-fitting junior jobs, ranked against your life profile
   (TF-IDF similarity, with the shared words shown). Pick one, press **Tailor CV and cover
-  letter**, and Claude writes both from your profile only. Any number, email or link that is
+  letter**, and Claude or Gemini writes both from your profile only. Any number, email or link that is
   not in your profile or the job ad is flagged. Edit, download as Word, open the
   application page, then mark it applied.
 - **All junior jobs:** only roles tagged junior or intern. Unclear and senior roles are hidden.
@@ -48,7 +48,7 @@ register of licensed sponsors.
 | Background jobs | Celery + Redis | Scheduled job search, LLM calls, form filling |
 | Browser automation | Playwright | Pre-filling application forms |
 | Frontend | Streamlit | Login, jobs table, life profile, CV review, tracker, all in Python |
-| AI | Claude API (anthropic SDK) | Tailored CV and cover letter per job |
+| AI | Claude API or Gemini API | Tailored CV and cover letter per job |
 | Documents | python-docx, pypdf | Word downloads, CV import |
 | Matching | rapidfuzz, pandas | Company names against the sponsor register; data for the table |
 | Tooling | uv, ruff, mypy (strict), pytest, pre-commit | Fast, modern Python toolchain |
@@ -79,7 +79,11 @@ make dev                              # API on http://localhost:8000/docs
 Keys in `.env`:
 
 - `LIFE200_ADZUNA_APP_ID` and `LIFE200_ADZUNA_APP_KEY`: the UK and Singapore jobs.
-- `LIFE200_ANTHROPIC_API_KEY`: tailored CVs and cover letters.
+- `LIFE200_GEMINI_API_KEY` or `LIFE200_ANTHROPIC_API_KEY`: tailored CVs and cover letters. Claude
+  is used if its key is set, otherwise Gemini (free key from aistudio.google.com; on the free
+  tier Google may use what you send to improve its products). Models are set with
+  `LIFE200_CLAUDE_MODEL` (default `claude-opus-5-5`) and `LIFE200_GEMINI_MODEL` (default
+  `gemini-flash-latest`).
 - `LIFE200_JOOBLE_JP_KEY` and `LIFE200_JOOBLE_TW_KEY`: Japan and Taiwan jobs. These are free from jp.jooble.org/api/about and tw.jooble.org/api/about. A market without a key is skipped.
 
 Commit `backend/uv.lock` — CI installs with `uv sync --frozen`, so the lock file is required.

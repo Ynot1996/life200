@@ -5,7 +5,7 @@ from life200.services.applications import get_application, save_draft, set_statu
 from life200.services.documents import markdown_to_docx
 from life200.services.life_store import load_profile
 from life200.services.matching import rank_jobs
-from life200.services.tailor import TailorError, make_client, tailor
+from life200.services.tailor import TailorError, tailor, writer_from_settings
 from life200.ui.common import MARKETS, SOURCE_CREDIT, SPONSOR_LABELS, junior_jobs, session, user_id
 
 st.title("Matches and apply")
@@ -62,26 +62,21 @@ with session() as s:
     app = get_application(s, user_id(), job_id)
     draft = (app.cv, app.cover_letter, list(app.warnings), app.status) if app else None
 
-settings = get_settings()
-if st.button(
-    "✍️ Tailor CV and cover letter", type="primary", disabled=settings.anthropic_api_key is None
-):
-    with st.spinner("Writing from your life profile… (about a minute)"):
+writer = writer_from_settings(get_settings())
+if st.button("✍️ Tailor CV and cover letter", type="primary", disabled=writer is None):
+    assert writer is not None
+    write, model = writer
+    with st.spinner(f"Writing from your life profile with {model}… (about a minute)"):
         try:
-            result = tailor(
-                make_client(settings.anthropic_api_key.get_secret_value()),  # type: ignore[union-attr]  # checked by disabled=
-                settings.claude_model,
-                profile_text,
-                {str(k): v for k, v in job.to_dict().items()},
-            )
+            result = tailor(write, profile_text, {str(k): v for k, v in job.to_dict().items()})
         except TailorError as exc:
             st.error(str(exc))
             st.stop()
     with session() as s, s.begin():
         save_draft(s, user_id(), job_id, result.cv, result.cover_letter, result.warnings)
     st.rerun()
-if settings.anthropic_api_key is None:
-    st.info("Set LIFE200_ANTHROPIC_API_KEY in .env to write tailored CVs.")
+if writer is None:
+    st.info("Set LIFE200_GEMINI_API_KEY or LIFE200_ANTHROPIC_API_KEY in .env to write CVs.")
 
 if draft:
     cv, letter, warnings, status = draft

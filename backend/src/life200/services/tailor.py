@@ -1,15 +1,20 @@
 """Write a tailored CV and cover letter for one job, using only facts from the life profile.
 
-Claude writes the drafts; `check_facts` then flags any number, email or link in the output
-that appears in neither the profile nor the job ad, since those are the facts an LLM most
-often invents. Flags are shown to the user before they apply.
+An LLM (Claude, or Gemini when there is no Anthropic key) writes the drafts. `check_facts`
+then flags any number, email or link in the output that appears in neither the profile nor
+the job ad, since those are the facts an LLM most often invents. Flags are shown before applying.
 """
 
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
 import anthropic
+from google import genai
+from google.genai import types
+
+from life200.core.config import Settings
 
 SYSTEM = """You write job applications for one candidate.
 
@@ -46,30 +51,67 @@ def job_prompt(job: dict[str, Any]) -> str:
     )
 
 
-def tailor(client: Any, model: str, profile_text: str, job: dict[str, Any]) -> Tailored:
-    response = client.beta.messages.create(
-        model=model,
-        max_tokens=16000,
-        betas=["server-side-fallback-2026-07-01"],
-        fallbacks="default",  # if a safety classifier declines, retry on a fallback model
-        output_config={"effort": "medium"},
-        system=SYSTEM,
-        messages=[
-            {
-                "role": "user",
-                "content": (
-                    f"<profile>\n{profile_text}\n</profile>\n\n<job>\n{job_prompt(job)}\n</job>"
-                ),
-            }
-        ],
-    )
-    if response.stop_reason == "refusal":
-        raise TailorError("Claude declined to write this application")
-    text = "".join(b.text for b in response.content if b.type == "text")
+# A writer takes (system prompt, user message) and returns the model's text.
+Writer = Callable[[str, str], str]
+
+
+def claude_writer(api_key: str, model: str) -> Writer:
+    client = anthropic.Anthropic(api_key=api_key)
+
+    def write(system: str, user: str) -> str:
+        response = client.beta.messages.create(
+            model=model,
+            max_tokens=16000,
+            betas=["server-side-fallback-2026-07-01"],
+            fallbacks="default",  # if a safety classifier declines, retry on a fallback model
+            output_config={"effort": "medium"},
+            system=system,
+            messages=[{"role": "user", "content": user}],
+        )
+        if response.stop_reason == "refusal":
+            raise TailorError("Claude declined to write this application")
+        return "".join(b.text for b in response.content if b.type == "text")
+
+    return write
+
+
+def gemini_writer(api_key: str, model: str) -> Writer:
+    client = genai.Client(api_key=api_key)
+
+    def write(system: str, user: str) -> str:
+        response = client.models.generate_content(
+            model=model,
+            contents=user,
+            config=types.GenerateContentConfig(system_instruction=system, max_output_tokens=16000),
+        )
+        return response.text or ""
+
+    return write
+
+
+def writer_from_settings(settings: Settings) -> tuple[Writer, str] | None:
+    """Claude if its key is set, else Gemini, else None. Also returns a label for the UI."""
+    if settings.anthropic_api_key is not None:
+        key = settings.anthropic_api_key.get_secret_value()
+        return claude_writer(key, settings.claude_model), settings.claude_model
+    if settings.gemini_api_key is not None:
+        key = settings.gemini_api_key.get_secret_value()
+        return gemini_writer(key, settings.gemini_model), settings.gemini_model
+    return None
+
+
+def tailor(write: Writer, profile_text: str, job: dict[str, Any]) -> Tailored:
+    user = f"<profile>\n{profile_text}\n</profile>\n\n<job>\n{job_prompt(job)}\n</job>"
+    try:
+        text = write(SYSTEM, user)
+    except TailorError:
+        raise
+    except Exception as exc:  # network, quota or key problems from either SDK
+        raise TailorError(f"the AI service failed: {type(exc).__name__}") from exc
     cv = _block(text, "cv")
     letter = _block(text, "cover_letter")
     if not cv or not letter:
-        raise TailorError("Claude's reply was missing the CV or the cover letter")
+        raise TailorError("the reply was missing the CV or the cover letter")
     source = profile_text + "\n" + job_prompt(job)
     return Tailored(cv, letter, check_facts(cv + "\n" + letter, source))
 
@@ -98,7 +140,3 @@ def check_facts(output: str, source: str) -> list[str]:
         if c.rstrip(".,)") not in source:
             warnings.append(f'"{c}" is not in your profile')
     return warnings
-
-
-def make_client(api_key: str) -> anthropic.Anthropic:
-    return anthropic.Anthropic(api_key=api_key)

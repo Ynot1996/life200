@@ -1,6 +1,5 @@
 """Login, life profile, matching, tailoring and the application tracker."""
 
-from types import SimpleNamespace
 from typing import Any
 
 import httpx
@@ -102,41 +101,55 @@ def test_cjk_seniority(title: str, expected: Seniority) -> None:
 # ---------- tailoring ----------
 
 
-def _fake_claude(text: str, stop: str = "end_turn") -> Any:
-    reply = SimpleNamespace(stop_reason=stop, content=[SimpleNamespace(type="text", text=text)])
-    seen: dict[str, Any] = {}
+def _fake_writer(text: str) -> Any:
+    seen: dict[str, str] = {}
 
-    def create(**kwargs: Any) -> Any:
-        seen.update(kwargs)
-        return reply
+    def write(system: str, user: str) -> str:
+        seen["system"], seen["user"] = system, user
+        return text
 
-    return SimpleNamespace(beta=SimpleNamespace(messages=SimpleNamespace(create=create))), seen
+    return write, seen
 
 
 JOB = {"Title": "Junior Data Engineer", "Company": "Acme", "Description": "Python, 2 days office"}
 
 
 def test_tailor_returns_both_documents_and_flags_invented_numbers() -> None:
-    client, seen = _fake_claude(
+    client, seen = _fake_writer(
         "<cv># Test Person\n- Built a pipeline for 1,610 jobs, cutting cost 40%</cv>"
         "<cover_letter>Dear Acme, see https://made.up</cover_letter>"
     )
-    result = tailor(client, "claude-opus-5-5", _profile().as_text(), JOB)
+    result = tailor(client, _profile().as_text(), JOB)
     assert result.cv.startswith("# Test Person")
     assert "Dear Acme" in result.cover_letter
     assert any("40%" in w for w in result.warnings)
     assert any("made.up" in w for w in result.warnings)
     assert not any("1610" in w for w in result.warnings)  # in the profile: fine
-    assert "Test Person" in seen["messages"][0]["content"]
+    assert "Test Person" in seen["user"]
+    assert "ONLY facts" in seen["system"]
 
 
 def test_tailor_errors() -> None:
-    client, _ = _fake_claude("", stop="refusal")
-    with pytest.raises(TailorError, match="declined"):
-        tailor(client, "m", "x", JOB)
-    client, _ = _fake_claude("<cv>only a cv</cv>")
+    def broken(system: str, user: str) -> str:
+        raise ConnectionError("down")
+
+    with pytest.raises(TailorError, match="ConnectionError"):
+        tailor(broken, "x", JOB)
+    client, _ = _fake_writer("<cv>only a cv</cv>")
     with pytest.raises(TailorError, match="missing"):
-        tailor(client, "m", "x", JOB)
+        tailor(client, "x", JOB)
+
+
+def test_writer_prefers_claude_then_gemini() -> None:
+    from life200.core.config import Settings
+    from life200.services.tailor import writer_from_settings
+
+    assert writer_from_settings(Settings(_env_file=None)) is None
+    gemini = writer_from_settings(Settings(_env_file=None, gemini_api_key="g"))
+    assert gemini is not None
+    assert gemini[1] == "gemini-flash-latest"
+    both = Settings(_env_file=None, gemini_api_key="g", anthropic_api_key="a")
+    assert writer_from_settings(both)[1].startswith("claude")  # type: ignore[index]
 
 
 def test_check_facts_accepts_numbers_from_the_job_ad() -> None:
