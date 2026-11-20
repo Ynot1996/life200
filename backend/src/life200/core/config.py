@@ -32,6 +32,7 @@ class Settings(BaseSettings):
     # Gemini is used when there is no Anthropic key. Free keys: aistudio.google.com.
     gemini_api_key: SecretStr | None = None
     gemini_model: str = "gemini-3.8-flash"  # newest Flash on the API as of 2026-11-20
+    gemini_fallback_model: str | None = "gemini-3.7-flash"  # used when the main one is overloaded
 
     @field_validator("*", mode="before")
     @classmethod

@@ -74,3 +74,32 @@ def test_raw_cv_text_is_hidden_once_split_into_sections() -> None:
     split = LifeProfile(entries=[raw, LifeEntry(kind="job", title="Intern", text="did things")])
     assert "RAW CV TEXT" not in split.as_text()
     assert "did things" in split.as_text()
+
+
+def test_gemini_falls_back_when_overloaded(monkeypatch: pytest.MonkeyPatch) -> None:
+    from types import SimpleNamespace
+
+    from google.genai import errors
+
+    from life200.services import tailor
+
+    called: list[str] = []
+
+    class FakeModels:
+        def generate_content(self, model: str, **kwargs: Any) -> Any:
+            called.append(model)
+            if model == "main":
+                raise errors.ServerError(503, {"error": {"message": "busy"}})
+            meta = SimpleNamespace(
+                prompt_token_count=10, candidates_token_count=5, thoughts_token_count=None
+            )
+            return SimpleNamespace(text="ok", usage_metadata=meta)
+
+    monkeypatch.setattr(
+        tailor.genai, "Client", lambda api_key: SimpleNamespace(models=FakeModels())
+    )
+    text, usage = tailor.gemini_writer("k", "main", "backup")("sys", "user")
+    assert (text, called) == ("ok", ["main", "backup"])
+    assert usage == Usage("google", "backup", 10, 5)
+    with pytest.raises(errors.ServerError):
+        tailor.gemini_writer("k", "main", None)("sys", "user")

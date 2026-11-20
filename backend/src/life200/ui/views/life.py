@@ -1,6 +1,5 @@
 """My profile: start from a CV, then edit details and each section on its own."""
 
-import pandas as pd
 import streamlit as st
 
 from life200.core.config import get_settings
@@ -11,15 +10,6 @@ from life200.services.documents import read_cv
 from life200.services.life_store import load_profile, save_profile
 from life200.services.tailor import TailorError, writer_from_settings
 from life200.ui.common import MARKETS, session, user_id
-
-COLUMNS = ["title", "org", "start", "end", "text"]
-LABELS = {
-    "title": "Title",
-    "org": "Company / school",
-    "start": "Start",
-    "end": "End",
-    "text": "Details (results, numbers)",
-}
 
 
 def _save(profile: LifeProfile) -> None:
@@ -117,45 +107,88 @@ with st.expander("Basic details", expanded=not profile.full_name), st.form("basi
         st.success("Saved.")
         st.rerun()
 
-# ---------- One tab per section ----------
+# ---------- One tab per section, one card per entry ----------
+SINGULAR = {
+    "job": "experience",
+    "project": "project",
+    "education": "education",
+    "skill": "skill group",
+    "story": "story",
+    "award": "item",
+}
+TEXT_LABEL = {
+    "job": "What you did and achieved (one bullet per line, with numbers)",
+    "project": "What you built, with what, and the result",
+    "education": "Grade, modules, dissertation",
+    "skill": "Skills (comma separated)",
+    "story": "Situation, Task, Action, Result",
+    "award": "Details",
+}
+
+
+def _entry_form(kind: str, entry: LifeEntry, key: str) -> LifeEntry | None:
+    """Fields for one entry. Returns the edited entry when Save is pressed."""
+    with st.form(key, border=False):
+        title = st.text_input(
+            "Title", entry.title, placeholder="Role, project, degree, skill group…"
+        )
+        if kind not in ("skill",):
+            c1, c2, c3 = st.columns([2, 1, 1])
+            org = c1.text_input("Company / school / place", entry.org)
+            start = c2.text_input("Start", entry.start, placeholder="2024-06")
+            end = c3.text_input("End", entry.end, placeholder="Present")
+        else:
+            org, start, end = entry.org, entry.start, entry.end
+        text = st.text_area(
+            TEXT_LABEL[kind], entry.text, height=180 if kind in ("job", "project", "story") else 90
+        )
+        if st.form_submit_button("Save", type="primary"):
+            return LifeEntry(kind=kind, title=title, org=org, start=start, end=end, text=text)
+    return None
+
+
+def _replace(index: int | None, kind: str, new: LifeEntry | None) -> None:
+    """Swap (or delete, or append) the `index`-th entry of `kind`, keeping the rest in order."""
+    out: list[LifeEntry] = []
+    seen = -1
+    for e in profile.entries:
+        if e.kind == kind:
+            seen += 1
+            if seen == index:
+                if new is not None:
+                    out.append(new)
+                continue
+        out.append(e)
+    if index is None and new is not None:
+        out.append(new)
+    _save(profile.model_copy(update={"entries": out}))
+    st.rerun()
+
+
 tabs = st.tabs(
     [
         f"{label} ({sum(e.kind == kind for e in profile.entries)})"
         for kind, (label, _) in SECTIONS.items()
     ]
 )
-for tab, (kind, (label, hint)) in zip(tabs, SECTIONS.items(), strict=True):
+for tab, (kind, (_label, hint)) in zip(tabs, SECTIONS.items(), strict=True):
     with tab:
         st.caption(hint)
-        rows = [e.model_dump() for e in profile.entries if e.kind == kind]
-        table = pd.DataFrame(rows, columns=["kind", *COLUMNS])[COLUMNS]
-        if kind in ("skill", "story"):
-            table = table[["title", "text"]]
-        edited = st.data_editor(
-            table,
-            num_rows="dynamic",
-            width="stretch",
-            key=f"section_{kind}",
-            column_config={
-                c: st.column_config.TextColumn(
-                    "Story" if (kind == "story" and c == "text") else LABELS[c],
-                    width="large" if c == "text" else "medium",
-                )
-                for c in table.columns
-            },
-        )
-        if st.button(f"Save {label.lower()}", key=f"save_{kind}"):
-            new = [
-                LifeEntry(
-                    kind=kind, **{str(k): ("" if pd.isna(v) else str(v)) for k, v in row.items()}
-                )
-                for row in edited.to_dict("records")
-                if any(str(v).strip() for v in row.values() if not pd.isna(v))
-            ]
-            others = [e for e in profile.entries if e.kind != kind]
-            _save(profile.model_copy(update={"entries": [*others, *new]}))
-            st.success(f"Saved {len(new)} {label.lower()}.")
-            st.rerun()
+        items = [e for e in profile.entries if e.kind == kind]
+        for i, entry in enumerate(items):
+            when = " to ".join(x for x in (entry.start, entry.end) if x)
+            head = " · ".join(x for x in (entry.title or "(untitled)", entry.org, when) if x)
+            with st.expander(head):
+                edited = _entry_form(kind, entry, key=f"{kind}_{i}")
+                if edited is not None:
+                    _replace(i, kind, edited)
+                if st.button("Delete", key=f"del_{kind}_{i}", icon=":material/delete:"):
+                    _replace(i, kind, None)
+        with st.expander(f"Add {SINGULAR[kind]}", icon=":material/add:"):
+            added = _entry_form(kind, LifeEntry(kind=kind), key=f"add_{kind}")
+            if added is not None and (added.title or added.text):
+                _replace(None, kind, added)
+
 
 # ---------- Later imports ----------
 if profile.entries:
