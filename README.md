@@ -19,8 +19,11 @@ A job-search co-pilot for junior and intern roles in the UK, Singapore, Japan an
   Taiwan, with each market's filters (sponsor licence, Japanese required, Employment Pass
   salary, top-university requirement).
 - **With a free account** (Continue with Google):
-  - **My profile:** your details and every job, project, course, award and story. You can
-    import an existing CV (PDF or Word). It is the only source of facts for applications.
+  - **My profile:** on the first visit, upload your CV and the AI fills in your details,
+    experience, projects, education and skills, copying only what the CV says. After that,
+    each section has its own tab to edit: Experience, Projects, Education, Skills, Stories
+    (STAR moments for cover letters and interviews, written by you), and Awards and other.
+    It is the only source of facts for applications.
   - **Matches and apply:** jobs ranked against your profile. Press **Tailor CV and cover
     letter** and the AI writes both from your profile only, flagging any number or link that
     is not in your profile or the job ad. Edit, download as Word, open the application page,

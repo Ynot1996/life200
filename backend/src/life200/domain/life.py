@@ -8,6 +8,27 @@ from pydantic import BaseModel, ConfigDict, Field
 
 ENTRY_KINDS = ("job", "education", "project", "award", "skill", "story", "cv")
 
+# The profile page shows one section per kind, in this order.
+SECTIONS = {
+    "job": ("Experience", "Jobs, internships, part-time work and volunteering."),
+    "project": (
+        "Projects",
+        "Personal, university or open-source projects. Say what you built and what it achieved.",
+    ),
+    "education": ("Education", "Degrees, courses and certificates."),
+    "skill": (
+        "Skills",
+        "One row per group, e.g. Title: Programming, Details: Python, SQL, pandas.",
+    ),
+    "story": (
+        "Stories",
+        "Moments that show who you are, for cover letters and interviews: a challenge, what "
+        "you did, and the result (the STAR method). The CV import does not fill these: they "
+        "are yours to write.",
+    ),
+    "award": ("Awards and other", "Awards, scholarships, languages, publications, anything else."),
+}
+
 
 class LifeEntry(BaseModel):
     model_config = ConfigDict(extra="ignore", str_strip_whitespace=True)
@@ -35,7 +56,14 @@ class LifeProfile(BaseModel):
     entries: list[LifeEntry] = Field(default_factory=list)
 
     def as_text(self) -> str:
-        """The whole profile as plain text: the only facts the tailoring step may use."""
+        """The whole profile as plain text: the only facts the tailoring step may use.
+
+        Raw imported CV text is left out once the CV has been split into entries, so the
+        same facts are not given twice.
+        """
+        return self._as_text(include_raw_cv=not any(e.kind != "cv" for e in self.entries))
+
+    def _as_text(self, include_raw_cv: bool) -> str:
         lines = [
             f"Name: {self.full_name}",
             f"Email: {self.email}",
@@ -47,6 +75,8 @@ class LifeProfile(BaseModel):
             f"Right to work: {self.right_to_work}",
         ]
         for e in self.entries:
+            if e.kind == "cv" and not include_raw_cv:
+                continue
             when = " to ".join(x for x in (e.start, e.end) if x)
             head = " | ".join(x for x in (e.kind.upper(), e.title, e.org, when) if x)
             lines += ["", head, e.text]
