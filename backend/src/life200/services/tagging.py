@@ -15,6 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from life200.db.models import JobPostingRow, SponsorRow
+from life200.services.market_rules import seniority_from_source, tag_market
 
 # ---------- Sponsor matching ----------
 
@@ -197,8 +198,21 @@ def tag_jobs(session: Session) -> int:
         job.sponsor_status = sponsor.status.value
         job.sponsor_match = sponsor.matched_name
         job.sponsor_score = sponsor.score
-        seniority, reason = classify_seniority(job.title, job.description)
-        job.seniority = seniority.value
-        job.seniority_reason = reason
+        labelled = seniority_from_source(job.source, job.raw or {})
+        if labelled is None:
+            seniority, reason = classify_seniority(job.title, job.description)
+            labelled = (seniority.value, reason)
+        job.seniority, job.seniority_reason = labelled
+        market = tag_market(
+            job.country,
+            job.source,
+            job.title,
+            job.description,
+            job.salary_min,
+            job.salary_max,
+            job.raw or {},
+        )
+        job.market_flags, job.market_notes = market.flags, market.notes
+        job.salary_year = market.salary_year
     session.flush()
     return len(jobs)

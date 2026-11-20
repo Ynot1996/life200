@@ -17,7 +17,7 @@ A job-search co-pilot for junior and intern roles in the UK, Singapore, Japan an
 
 - **Matches and apply:** your best-fitting junior jobs, ranked against your life profile
   (TF-IDF similarity, with the shared words shown). Pick one, press **Tailor CV and cover
-  letter**, and Claude writes both from your profile only. Any number, email or link that is
+  letter**, and Claude or Gemini writes both from your profile only. Any number, email or link that is
   not in your profile or the job ad is flagged. Edit, download as Word, open the
   application page, then mark it applied.
 - **All junior jobs:** only roles tagged junior or intern. Unclear and senior roles are hidden.
@@ -26,9 +26,15 @@ A job-search co-pilot for junior and intern roles in the UK, Singapore, Japan an
   an existing CV (PDF or Word). This is the only source of facts for applications.
 - **My applications:** a tracker with the statuses draft, applied, interview, offer and rejected.
 
-Jobs come from Adzuna (UK and Singapore) and Jooble (Japan and Taiwan). Each UK job is
-tagged licensed, likely, agency, paid course or not found, matched against the Home Office
-register of licensed sponsors.
+Each market has its own sources and rules. Every rule is a sidebar switch, and each job
+shows why it was flagged.
+
+| Market | Source | Rules (on by default) |
+|---|---|---|
+| 🇬🇧 UK | Adzuna | Employer on the Home Office sponsor register (licensed, likely, agency, paid course, not found) |
+| 🇸🇬 Singapore | Adzuna | Hide citizens/PR-only ads; hide pay below the Employment Pass minimum (S$5,600/month in 2026, S$6,000 from 2027) |
+| 🇯🇵 Japan | Japan Dev | Hide jobs needing Japanese; only jobs open to applicants abroad; visa sponsorship shown |
+| 🇹🇼 Taiwan | Jooble Taiwan (needs a tw.jooble.org key) | Hide jobs asking for a top university (台清交成, 頂大…); highest pay first, monthly pay ×12 |
 
 - [ROADMAP.md](ROADMAP.md) — phases
 - [docs/product/brief.md](docs/product/brief.md) — what the product is and who it is for
@@ -40,7 +46,7 @@ register of licensed sponsors.
 | Layer | Choice | Why |
 |---|---|---|
 | Language | Python 3.12 | One language for the API, data science and AI |
-| Job data | httpx, Adzuna and Jooble APIs | UK, Singapore, Japan and Taiwan jobs, with retries |
+| Job data | httpx; Adzuna, Japan Dev, Jooble | UK, Singapore, Japan and Taiwan jobs, with retries |
 | Data science | pandas, scikit-learn, Jupyter | Market analysis and the truly-junior classifier |
 | API | FastAPI + Pydantic v2 | Typed, async, auto-generated OpenAPI docs |
 | Database | PostgreSQL 16 + pgvector | One store for relational data and embeddings |
@@ -48,7 +54,7 @@ register of licensed sponsors.
 | Background jobs | Celery + Redis | Scheduled job search, LLM calls, form filling |
 | Browser automation | Playwright | Pre-filling application forms |
 | Frontend | Streamlit | Login, jobs table, life profile, CV review, tracker, all in Python |
-| AI | Claude API (anthropic SDK) | Tailored CV and cover letter per job |
+| AI | Claude API or Gemini API | Tailored CV and cover letter per job |
 | Documents | python-docx, pypdf | Word downloads, CV import |
 | Matching | rapidfuzz, pandas | Company names against the sponsor register; data for the table |
 | Tooling | uv, ruff, mypy (strict), pytest, pre-commit | Fast, modern Python toolchain |
@@ -79,8 +85,13 @@ make dev                              # API on http://localhost:8000/docs
 Keys in `.env`:
 
 - `LIFE200_ADZUNA_APP_ID` and `LIFE200_ADZUNA_APP_KEY`: the UK and Singapore jobs.
-- `LIFE200_ANTHROPIC_API_KEY`: tailored CVs and cover letters.
-- `LIFE200_JOOBLE_JP_KEY` and `LIFE200_JOOBLE_TW_KEY`: Japan and Taiwan jobs. These are free from jp.jooble.org/api/about and tw.jooble.org/api/about. A market without a key is skipped.
+- `LIFE200_GEMINI_API_KEY` or `LIFE200_ANTHROPIC_API_KEY`: tailored CVs and cover letters. Claude
+  is used if its key is set, otherwise Gemini (free key from aistudio.google.com; on the free
+  tier Google may use what you send to improve its products). Models are set with
+  `LIFE200_CLAUDE_MODEL` (default `claude-opus-5-5`) and `LIFE200_GEMINI_MODEL` (default
+  `gemini-3.8-flash`).
+- `LIFE200_JOOBLE_TW_KEY`: Taiwan jobs. Jooble keys only work on the site that issued them,
+  so request it at tw.jooble.org/api/about. Without it, Taiwan is skipped.
 
 Commit `backend/uv.lock` — CI installs with `uv sync --frozen`, so the lock file is required.
 
@@ -94,8 +105,8 @@ life200/
 │   │   ├── core/       config, logging, shared infrastructure
 │   │   ├── db/         database tables and connection (SQLAlchemy)
 │   │   ├── domain/     Pydantic models — the language of the business
-│   │   ├── services/   business logic (jobs, tags, auth, matching, tailoring, tracker)
-│   │   ├── sources/    job platforms (Adzuna, Jooble) and the sponsor register
+│   │   ├── services/   business logic (jobs, tags, market rules, auth, matching, tailoring)
+│   │   ├── sources/    job platforms (Adzuna, Japan Dev, Jooble) and the sponsor register
 │   │   ├── ui/         Streamlit app: login, then pages in ui/views/ (`make app`)
 │   │   └── cli.py      command line: `make admin`, `make refresh`, `make fetch`, `make sponsors`
 │   ├── migrations/     Alembic scripts that change the database
@@ -114,9 +125,12 @@ life200/
 - Recruitment agencies hide the real employer, so their jobs are tagged "agency".
 - Adzuna descriptions are cut short, so an experience requirement late in a job ad can be missed.
 - Tags are rules, not machine learning yet; each one shows its reason so it can be checked.
-- Japan and Taiwan junior tags rely on title words such as 新卒, 未経験, 實習 and 新鮮人, so
-  some junior roles there are missed. The Jooble endpoints for jp and tw are untested with a
-  real key.
+- Japan Dev serves its 60 newest jobs per visit, so Japan grows with each daily refresh. Most
+  English-friendly jobs in Japan are mid-level or senior, so few are junior.
+- Taiwan has no working source yet. Cake, Yourator and TokyoDev block automated visits with a
+  bot check, which Life200 does not bypass.
+- Most Singapore ads on Adzuna have no salary, so Employment Pass chances are often unknown.
+  Interns usually need a Training Employment Pass instead, which these rules do not check.
 - Matching is word overlap (TF-IDF), not meaning, so it can miss a strong match that is
   described in different words.
 - **Applying is not automatic.** Each employer's site needs your own account and often a

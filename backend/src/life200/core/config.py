@@ -26,10 +26,12 @@ class Settings(BaseSettings):
     anthropic_api_key: SecretStr | None = None
     adzuna_app_id: str | None = None
     adzuna_app_key: SecretStr | None = None
-    # Jooble has one key per country site (jp.jooble.org, tw.jooble.org): Japan and Taiwan.
-    jooble_jp_key: SecretStr | None = None
+    # Jooble keys only work on the country site that issued them: Taiwan needs a tw.jooble.org key.
     jooble_tw_key: SecretStr | None = None
     claude_model: str = "claude-opus-5-5"
+    # Gemini is used when there is no Anthropic key. Free keys: aistudio.google.com.
+    gemini_api_key: SecretStr | None = None
+    gemini_model: str = "gemini-3.8-flash"  # newest Flash on the API as of 2026-11-20
 
     @field_validator("*", mode="before")
     @classmethod

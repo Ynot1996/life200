@@ -25,6 +25,8 @@ from life200.services.ingest import save_jobs
 from life200.services.sponsors import replace_register
 from life200.services.tagging import tag_jobs
 from life200.sources.adzuna import AdzunaClient, AdzunaError
+from life200.sources.japandev import JapanDevError
+from life200.sources.japandev import fetch_jobs as fetch_japan_dev
 from life200.sources.jooble import JoobleClient, JoobleError
 from life200.sources.sponsor_register import download_register
 
@@ -33,13 +35,10 @@ from life200.sources.sponsor_register import download_register
 # tag then sorts out which jobs are truly junior. Each page of 50 costs one API call.
 DEFAULT_SEARCHES = ("junior", "graduate", "entry level", "trainee", "apprentice")
 CATEGORY = "it-jobs"
-# Adzuna covers the UK and Singapore. Japan and Taiwan come from Jooble (one key per country).
+# Sources per market: Adzuna for the UK and Singapore, Japan Dev for Japan (English-friendly
+# jobs), Jooble's Taiwan site for Taiwan (needs a key issued by tw.jooble.org).
 ADZUNA_MARKETS = ("gb", "sg")
-JOOBLE_MARKETS = ("jp", "tw")
-JOOBLE_SEARCHES = {
-    "jp": ("エンジニア 未経験", "新卒 エンジニア", "junior engineer", "intern developer"),
-    "tw": ("工程師 新鮮人", "實習 工程師", "junior engineer", "intern developer"),
-}
+TAIWAN_SEARCHES = ("工程師 新鮮人", "實習 工程師", "junior engineer", "intern developer")
 PAGE_DELAY_SECONDS = 3.0  # Adzuna's free tier allows about 25 calls a minute
 
 
@@ -132,20 +131,23 @@ def refresh(where: str | None, pages: int, max_days_old: int) -> int:
                 continue
             total_new += _save(jobs, f"{country} {what!r}")
 
-    settings = get_settings()
-    for country in JOOBLE_MARKETS:
-        key = getattr(settings, f"jooble_{country}_key")
-        if key is None:
-            print(f"  {country}: skipped, set LIFE200_JOOBLE_{country.upper()}_KEY in .env")
-            continue
-        jooble = JoobleClient(country, key.get_secret_value(), page_delay_seconds=1.0)
-        for what in JOOBLE_SEARCHES[country]:
+    try:
+        total_new += _save(fetch_japan_dev(), "jp Japan Dev (newest 60)")
+    except (JapanDevError, httpx.HTTPError) as exc:
+        print(f"  jp Japan Dev: failed ({exc})", file=sys.stderr)
+
+    key = get_settings().jooble_tw_key
+    if key is None:
+        print("  tw: skipped, set LIFE200_JOOBLE_TW_KEY (a key from tw.jooble.org) in .env")
+    else:
+        jooble = JoobleClient("tw", key.get_secret_value(), page_delay_seconds=1.0)
+        for what in TAIWAN_SEARCHES:
             try:
                 jobs = list(jooble.search(what, pages=min(pages, 5)))
             except JoobleError as exc:
-                print(f"  {country} {what!r}: failed ({exc})", file=sys.stderr)
+                print(f"  tw {what!r}: failed ({exc})", file=sys.stderr)
                 continue
-            total_new += _save(jobs, f"{country} {what!r}")
+            total_new += _save(jobs, f"tw {what!r}")
 
     with get_sessionmaker()() as session, session.begin():
         tagged = tag_jobs(session)
