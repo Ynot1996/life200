@@ -15,6 +15,7 @@ from google import genai
 from google.genai import types
 
 from life200.core.config import Settings
+from life200.services.ai_costs import Usage
 
 SYSTEM = """You write job applications for one candidate.
 
@@ -42,6 +43,7 @@ class Tailored:
     cv: str
     cover_letter: str
     warnings: list[str] = field(default_factory=list)
+    usage: Usage | None = None  # tokens used, for cost tracking
 
 
 def job_prompt(job: dict[str, Any]) -> str:
@@ -51,14 +53,14 @@ def job_prompt(job: dict[str, Any]) -> str:
     )
 
 
-# A writer takes (system prompt, user message) and returns the model's text.
-Writer = Callable[[str, str], str]
+# A writer takes (system prompt, user message) and returns the model's text and token usage.
+Writer = Callable[[str, str], tuple[str, Usage | None]]
 
 
 def claude_writer(api_key: str, model: str) -> Writer:
     client = anthropic.Anthropic(api_key=api_key)
 
-    def write(system: str, user: str) -> str:
+    def write(system: str, user: str) -> tuple[str, Usage | None]:
         response = client.beta.messages.create(
             model=model,
             max_tokens=16000,
@@ -70,7 +72,12 @@ def claude_writer(api_key: str, model: str) -> Writer:
         )
         if response.stop_reason == "refusal":
             raise TailorError("Claude declined to write this application")
-        return "".join(b.text for b in response.content if b.type == "text")
+        text = "".join(b.text for b in response.content if b.type == "text")
+        u = response.usage
+        tokens_in = (
+            u.input_tokens + (u.cache_creation_input_tokens or 0) + (u.cache_read_input_tokens or 0)
+        )
+        return text, Usage("anthropic", model, tokens_in, u.output_tokens)
 
     return write
 
@@ -78,13 +85,18 @@ def claude_writer(api_key: str, model: str) -> Writer:
 def gemini_writer(api_key: str, model: str) -> Writer:
     client = genai.Client(api_key=api_key)
 
-    def write(system: str, user: str) -> str:
+    def write(system: str, user: str) -> tuple[str, Usage | None]:
         response = client.models.generate_content(
             model=model,
             contents=user,
             config=types.GenerateContentConfig(system_instruction=system, max_output_tokens=16000),
         )
-        return response.text or ""
+        meta = response.usage_metadata
+        usage = None
+        if meta is not None:
+            out = (meta.candidates_token_count or 0) + (meta.thoughts_token_count or 0)
+            usage = Usage("google", model, meta.prompt_token_count or 0, out)
+        return response.text or "", usage
 
     return write
 
@@ -103,7 +115,7 @@ def writer_from_settings(settings: Settings) -> tuple[Writer, str] | None:
 def tailor(write: Writer, profile_text: str, job: dict[str, Any]) -> Tailored:
     user = f"<profile>\n{profile_text}\n</profile>\n\n<job>\n{job_prompt(job)}\n</job>"
     try:
-        text = write(SYSTEM, user)
+        text, usage = write(SYSTEM, user)
     except TailorError:
         raise
     except Exception as exc:  # network, quota or key problems from either SDK
@@ -113,7 +125,7 @@ def tailor(write: Writer, profile_text: str, job: dict[str, Any]) -> Tailored:
     if not cv or not letter:
         raise TailorError("the reply was missing the CV or the cover letter")
     source = profile_text + "\n" + job_prompt(job)
-    return Tailored(cv, letter, check_facts(cv + "\n" + letter, source))
+    return Tailored(cv, letter, check_facts(cv + "\n" + letter, source), usage)
 
 
 def _block(text: str, tag: str) -> str:

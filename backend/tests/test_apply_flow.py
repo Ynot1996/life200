@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from life200.db.models import JobPostingRow
 from life200.domain.life import LifeEntry, LifeProfile
 from life200.services import auth
+from life200.services.ai_costs import Usage, cost_usd, record, usage_table
 from life200.services.applications import list_applications, save_draft, set_status
 from life200.services.documents import markdown_to_docx, read_cv
 from life200.services.life_store import load_profile, save_profile
@@ -104,9 +105,9 @@ def test_cjk_seniority(title: str, expected: Seniority) -> None:
 def _fake_writer(text: str) -> Any:
     seen: dict[str, str] = {}
 
-    def write(system: str, user: str) -> str:
+    def write(system: str, user: str) -> tuple[str, Any]:
         seen["system"], seen["user"] = system, user
-        return text
+        return text, Usage("google", "gemini-3.8-flash", 4000, 1500)
 
     return write, seen
 
@@ -130,7 +131,7 @@ def test_tailor_returns_both_documents_and_flags_invented_numbers() -> None:
 
 
 def test_tailor_errors() -> None:
-    def broken(system: str, user: str) -> str:
+    def broken(system: str, user: str) -> tuple[str, Any]:
         raise ConnectionError("down")
 
     with pytest.raises(TailorError, match="ConnectionError"):
@@ -255,3 +256,30 @@ def test_google_sign_in_creates_then_reuses_the_account(db_session: Session) -> 
     assert again.last_login_at is not None
     # A Google account has no password, so password sign-in must fail.
     assert auth.authenticate(db_session, "new@gmail.com", "anything at all") is None
+
+
+def test_tailor_returns_usage() -> None:
+    client, _ = _fake_writer("<cv>cv</cv><cover_letter>letter</cover_letter>")
+    result = tailor(client, "x", JOB)
+    assert result.usage == Usage("google", "gemini-3.8-flash", 4000, 1500)
+
+
+def test_cost_uses_the_price_for_the_date() -> None:
+    from datetime import date
+    from decimal import Decimal
+
+    usage = Usage("google", "gemini-3.8-flash", 1_000_000, 1_000_000)
+    assert cost_usd(usage, on=date(2026, 11, 20)) == Decimal("4.50")  # intro 0.75 + 3.75
+    assert cost_usd(usage, on=date(2027, 2, 1)) == Decimal("9.00")  # standard 1.50 + 7.50
+    assert cost_usd(Usage("anthropic", "claude-opus-5-5", 2000, 1000)) == Decimal("0.028")
+    assert cost_usd(Usage("x", "unknown-model", 10, 10)) is None
+
+
+def test_usage_is_recorded_per_user(db_session: Session) -> None:
+    user = auth.create_user(db_session, "cost@example.com", "long enough pw")
+    record(db_session, user.id, "tailor", Usage("anthropic", "claude-haiku-5-5", 4000, 1500))
+    db_session.flush()
+    df = usage_table(db_session.connection())
+    mine = df[df["User"] == "cost@example.com"]
+    assert len(mine) == 1
+    assert mine["Cost (USD)"].iloc[0] == pytest.approx(0.00115)

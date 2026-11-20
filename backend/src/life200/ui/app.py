@@ -28,6 +28,7 @@ def _sync_google_user() -> None:
     with session() as s, s.begin():
         user = sign_in_with_google(s, email, st.user.get("name"))  # type: ignore[arg-type]
         st.session_state["user_id"], st.session_state["email"] = user.id, user.email
+        st.session_state["is_admin"] = user.is_admin
 
 
 def sign_in_page() -> None:
@@ -73,6 +74,8 @@ if signed_in:
         st.Page("views/life.py", title="My profile", icon="📝"),
         st.Page("views/tracker.py", title="My applications", icon="📌"),
     ]
+    if st.session_state.get("is_admin"):
+        pages.append(st.Page("views/costs.py", title="AI costs (admin)", icon="💷"))
 else:
     pages = [find_jobs, st.Page(sign_in_page, title="Sign in", icon="🔑")]
 

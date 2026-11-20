@@ -28,7 +28,9 @@ A job-search co-pilot for junior and intern roles in the UK, Singapore, Japan an
   - **My applications:** your history, with the statuses draft, applied, interview, offer and rejected.
 
 Each user's profile and applications are private to their account. Every account has a
-`plan` (all "free" today), ready for paid tiers later.
+`plan` (all "free" today), ready for paid tiers later. Every AI call is logged with its user,
+model, tokens and list-price cost (`ai_usage` table), and admins see totals on **AI costs**,
+so credit prices can be set from real numbers.
 
 Each market has its own sources and rules. Every rule is a sidebar switch, and each job
 shows why it was flagged.
