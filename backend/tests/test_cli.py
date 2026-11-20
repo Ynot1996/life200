@@ -48,4 +48,4 @@ def test_fetch_saves_jobs_and_reports(
 
     # This test commits for real, so clean up for the other tests.
     with db_engine.begin() as conn:
-        conn.exec_driver_sql("TRUNCATE job_postings")
+        conn.exec_driver_sql("TRUNCATE job_postings CASCADE")

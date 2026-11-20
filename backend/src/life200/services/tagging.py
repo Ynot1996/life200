@@ -26,6 +26,7 @@ class SponsorStatus(StrEnum):
     TRAINING = "training"  # a paid course or training scheme advertised as a job
     NOT_FOUND = "not_found"
     UNKNOWN = "unknown"  # the job has no company name
+    NOT_UK = "not_uk"  # the UK register does not apply outside the UK
 
 
 # Fuzzy matching on short company names gives false matches ("Radiant" vs "Gradiant"), so
@@ -143,6 +144,11 @@ _JUNIOR_TITLE = re.compile(
     r"intern|internship|placement|associate)\b"
 )
 # "3+ years", "3-5 years", "3\u20135 years" (en dash), "at least 2 years"
+# Japanese and Chinese titles: \b does not work between CJK characters, so no word bounds.
+_SENIOR_TITLE_CJK = re.compile(r"シニア|リード|マネージャー|管理職|資深|主管|經理|经理|高級|高级")
+_JUNIOR_TITLE_CJK = re.compile(
+    r"ジュニア|新卒|第二新卒|未経験|インターン|実習|研修生|見習|實習|实习|新鮮人|應屆|应届|初階|初级|助理"
+)
 _YEARS = re.compile(
     r"(\d{1,2})\s*\+?\s*(?:-|to|\u2013)?\s*(?:\d{1,2})?\s*\+?\s*years?", re.IGNORECASE
 )
@@ -153,7 +159,7 @@ JUNIOR_MAX_YEARS = 1  # asking for more than this is not a junior role
 def classify_seniority(title: str, description: str) -> tuple[Seniority, str]:
     """Return a seniority tag and a short human-readable reason."""
     title_l = title.casefold()
-    senior = _SENIOR_TITLE.search(title_l)
+    senior = _SENIOR_TITLE.search(title_l) or _SENIOR_TITLE_CJK.search(title)
     if senior:
         return Seniority.NOT_JUNIOR, f'title says "{senior.group(0)}"'
 
@@ -163,7 +169,7 @@ def classify_seniority(title: str, description: str) -> tuple[Seniority, str]:
         if years > JUNIOR_MAX_YEARS and years < 30 and _EXPERIENCE_NEARBY.search(window):
             return Seniority.NOT_JUNIOR, f'asks for "{m.group(0).strip()}" of experience'
 
-    junior = _JUNIOR_TITLE.search(title_l)
+    junior = _JUNIOR_TITLE.search(title_l) or _JUNIOR_TITLE_CJK.search(title)
     if junior:
         return Seniority.JUNIOR, f'title says "{junior.group(0)}"'
     return Seniority.UNCLEAR, "no seniority signal in the title or description"
@@ -182,7 +188,9 @@ def tag_jobs(session: Session) -> int:
     matcher = load_matcher(session)
     jobs = session.scalars(select(JobPostingRow)).all()
     for job in jobs:
-        if is_training_ad(job.company, job.title, job.description):
+        if job.country != "gb":
+            sponsor = SponsorMatch(SponsorStatus.NOT_UK)
+        elif is_training_ad(job.company, job.title, job.description):
             sponsor = SponsorMatch(SponsorStatus.TRAINING)
         else:
             sponsor = matcher.match(job.company)

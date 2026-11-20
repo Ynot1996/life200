@@ -1,12 +1,14 @@
 """Command-line entry point.
 
 From the project folder:
-    make refresh     # sponsor register (if stale) + all default searches + tagging
+    make refresh     # sponsor register (if stale) + UK, SG, JP, TW searches + tagging
+    make admin EMAIL=you@example.com   # create your login
     make fetch       # one search, see Makefile for options
     make sponsors    # download the latest sponsor register
 """
 
 import argparse
+import getpass
 import logging
 import sys
 from datetime import date
@@ -17,10 +19,13 @@ from sqlalchemy import func, select
 from life200.core.config import get_settings
 from life200.db.models import SponsorRow
 from life200.db.session import get_sessionmaker
+from life200.domain.job import JobPosting
+from life200.services.auth import create_user
 from life200.services.ingest import save_jobs
 from life200.services.sponsors import replace_register
 from life200.services.tagging import tag_jobs
 from life200.sources.adzuna import AdzunaClient, AdzunaError
+from life200.sources.jooble import JoobleClient, JoobleError
 from life200.sources.sponsor_register import download_register
 
 # The searches `refresh` runs, UK-wide in Adzuna's IT category. Adzuna requires every word to
@@ -28,6 +33,13 @@ from life200.sources.sponsor_register import download_register
 # tag then sorts out which jobs are truly junior. Each page of 50 costs one API call.
 DEFAULT_SEARCHES = ("junior", "graduate", "entry level", "trainee", "apprentice")
 CATEGORY = "it-jobs"
+# Adzuna covers the UK and Singapore. Japan and Taiwan come from Jooble (one key per country).
+ADZUNA_MARKETS = ("gb", "sg")
+JOOBLE_MARKETS = ("jp", "tw")
+JOOBLE_SEARCHES = {
+    "jp": ("エンジニア 未経験", "新卒 エンジニア", "junior engineer", "intern developer"),
+    "tw": ("工程師 新鮮人", "實習 工程師", "junior engineer", "intern developer"),
+}
 PAGE_DELAY_SECONDS = 3.0  # Adzuna's free tier allows about 25 calls a minute
 
 
@@ -70,6 +82,28 @@ def sponsors() -> int:
     return 0
 
 
+def _save(jobs: list[JobPosting], label: str) -> int:
+    with get_sessionmaker()() as session, session.begin():
+        result = save_jobs(session, jobs)
+    print(f"  {label}: {result.received} jobs, {result.new} new")
+    return result.new
+
+
+def admin(email: str) -> int:
+    password = getpass.getpass("New password (10+ characters): ")
+    if password != getpass.getpass("Same again: "):
+        print("Passwords did not match.", file=sys.stderr)
+        return 1
+    try:
+        with get_sessionmaker()() as session, session.begin():
+            create_user(session, email, password, is_admin=True)
+    except ValueError as exc:
+        print(exc, file=sys.stderr)
+        return 1
+    print(f"Admin {email} is ready. Log in with `make app`.")
+    return 0
+
+
 def refresh(where: str | None, pages: int, max_days_old: int) -> int:
     with get_sessionmaker()() as session:
         latest = session.scalar(select(func.max(SponsorRow.register_date)))
@@ -80,20 +114,38 @@ def refresh(where: str | None, pages: int, max_days_old: int) -> int:
     if client is None:
         return 1
     total_new = 0
-    for what in DEFAULT_SEARCHES:
-        try:
-            jobs = list(
-                client.search(
-                    what, where=where, pages=pages, max_days_old=max_days_old, category=CATEGORY
+    for country in ADZUNA_MARKETS:
+        for what in DEFAULT_SEARCHES:
+            try:
+                jobs = list(
+                    client.search(
+                        what,
+                        where=where if country == "gb" else None,
+                        pages=pages,
+                        max_days_old=max_days_old,
+                        category=CATEGORY,
+                        country=country,
+                    )
                 )
-            )
-        except AdzunaError as exc:  # one failed search should not stop the rest
-            print(f"  {what!r}: failed ({exc})", file=sys.stderr)
+            except AdzunaError as exc:  # one failed search should not stop the rest
+                print(f"  {country} {what!r}: failed ({exc})", file=sys.stderr)
+                continue
+            total_new += _save(jobs, f"{country} {what!r}")
+
+    settings = get_settings()
+    for country in JOOBLE_MARKETS:
+        key = getattr(settings, f"jooble_{country}_key")
+        if key is None:
+            print(f"  {country}: skipped, set LIFE200_JOOBLE_{country.upper()}_KEY in .env")
             continue
-        with get_sessionmaker()() as session, session.begin():
-            result = save_jobs(session, jobs)
-        total_new += result.new
-        print(f"  {what!r}: {result.received} jobs, {result.new} new")
+        jooble = JoobleClient(country, key.get_secret_value(), page_delay_seconds=1.0)
+        for what in JOOBLE_SEARCHES[country]:
+            try:
+                jobs = list(jooble.search(what, pages=min(pages, 5)))
+            except JoobleError as exc:
+                print(f"  {country} {what!r}: failed ({exc})", file=sys.stderr)
+                continue
+            total_new += _save(jobs, f"{country} {what!r}")
 
     with get_sessionmaker()() as session, session.begin():
         tagged = tag_jobs(session)
@@ -118,6 +170,9 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--pages", type=int, default=10, help="Max pages of 50 per search")
     r.add_argument("--max-days-old", type=int, default=30)
 
+    a = commands.add_parser("admin", help="Create an admin login (or reset its password)")
+    a.add_argument("email")
+
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(name)s: %(message)s")
     # httpx logs every request URL at INFO, and Adzuna URLs contain the API key.
@@ -125,6 +180,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "fetch":
         return fetch(args.what, args.where, args.pages, args.max_days_old)
+    if args.command == "admin":
+        return admin(args.email)
     if args.command == "sponsors":
         return sponsors()
     return refresh(args.where, args.pages, args.max_days_old)

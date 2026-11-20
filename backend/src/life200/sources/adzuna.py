@@ -1,4 +1,4 @@
-"""Fetch UK job postings from the Adzuna API.
+"""Fetch job postings from the Adzuna API (UK and Singapore; Adzuna has no Japan or Taiwan).
 
 API docs: https://developer.adzuna.com/docs/search
 Terms: listings shown publicly must say "Jobs by Adzuna" and link through Adzuna's URL.
@@ -17,7 +17,7 @@ from life200.domain.job import JobPosting
 
 log = logging.getLogger(__name__)
 
-BASE_URL = "https://api.adzuna.com/v1/api/jobs/gb/search"
+BASE_URL = "https://api.adzuna.com/v1/api/jobs/{country}/search"
 SOURCE = "adzuna"
 MAX_PER_PAGE = 50  # Adzuna's limit
 RETRY_STATUSES = {429, 500, 502, 503, 504}  # worth trying again: rate limit or server trouble
@@ -27,11 +27,12 @@ class AdzunaError(RuntimeError):
     """Adzuna returned an error we cannot recover from."""
 
 
-def parse_job(item: dict[str, Any]) -> JobPosting:
+def parse_job(item: dict[str, Any], country: str = "gb") -> JobPosting:
     """Turn one Adzuna result into a JobPosting. Pure function: easy to test."""
     return JobPosting(
         source=SOURCE,
         source_id=str(item["id"]),
+        country=country,
         title=item["title"],
         company=(item.get("company") or {}).get("display_name"),
         location=(item.get("location") or {}).get("display_name"),
@@ -80,10 +81,12 @@ class AdzunaClient:
         pages: int = 1,
         max_days_old: int | None = None,
         category: str | None = None,
+        country: str = "gb",
     ) -> Iterator[JobPosting]:
         """Yield jobs page by page. Stops early when a page comes back short.
 
-        `where=None` searches the whole UK. `category` is an Adzuna tag such as "it-jobs".
+        `where=None` searches the whole country; `country` is "gb" or "sg".
+        `category` is an Adzuna tag such as "it-jobs".
         """
         for page in range(1, pages + 1):
             if page > 1 and self._page_delay:
@@ -100,9 +103,9 @@ class AdzunaClient:
                 params["max_days_old"] = max_days_old
             if category:
                 params["category"] = category
-            results = self._get(f"{BASE_URL}/{page}", params)["results"]
+            results = self._get(f"{BASE_URL.format(country=country)}/{page}", params)["results"]
             log.info("adzuna page %d: %d jobs", page, len(results))
-            yield from (parse_job(item) for item in results)
+            yield from (parse_job(item, country) for item in results)
             if len(results) < MAX_PER_PAGE:
                 return
 

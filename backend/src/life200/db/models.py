@@ -8,7 +8,18 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import JSON, Date, DateTime, Float, Numeric, String, Text, UniqueConstraint, func
+from sqlalchemy import (
+    JSON,
+    Date,
+    DateTime,
+    Float,
+    ForeignKey,
+    Numeric,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -25,6 +36,7 @@ class JobPostingRow(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     source: Mapped[str] = mapped_column(String(32))
     source_id: Mapped[str] = mapped_column(String(128))
+    country: Mapped[str] = mapped_column(String(2), default="gb", server_default="gb", index=True)
     title: Mapped[str] = mapped_column(Text)
     company: Mapped[str | None] = mapped_column(Text)
     location: Mapped[str | None] = mapped_column(Text)
@@ -63,3 +75,49 @@ class SponsorRow(Base):
     rating: Mapped[str] = mapped_column(Text)  # e.g. "Worker (A rating)"
     route: Mapped[str] = mapped_column(Text)  # e.g. "Skilled Worker"
     register_date: Mapped[date] = mapped_column(Date)
+
+
+_JSON = JSON().with_variant(JSONB(), "postgresql")
+
+
+class UserRow(Base):
+    """Someone who can log in. Passwords are stored only as salted scrypt hashes."""
+
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    email: Mapped[str] = mapped_column(String(320), unique=True)
+    password_hash: Mapped[str] = mapped_column(Text)
+    is_admin: Mapped[bool] = mapped_column(default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class LifeProfileRow(Base):
+    """Everything a user has told us about their life: one JSON document per user."""
+
+    __tablename__ = "life_profiles"
+
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    data: Mapped[dict[str, Any]] = mapped_column(_JSON)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class ApplicationRow(Base):
+    """One job a user is applying to, with the tailored documents."""
+
+    __tablename__ = "applications"
+    __table_args__ = (UniqueConstraint("user_id", "job_id", name="uq_applications_user_job"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    job_id: Mapped[int] = mapped_column(ForeignKey("job_postings.id", ondelete="CASCADE"))
+    status: Mapped[str] = mapped_column(String(16), default="draft")  # draft, applied, rejected...
+    cv: Mapped[str] = mapped_column(Text, default="")
+    cover_letter: Mapped[str] = mapped_column(Text, default="")
+    warnings: Mapped[list[str]] = mapped_column(_JSON, default=list)
+    applied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

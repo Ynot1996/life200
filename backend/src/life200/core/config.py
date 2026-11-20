@@ -7,7 +7,7 @@ Values come from the real environment first, then from a `.env` file.
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import SecretStr
+from pydantic import SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -26,6 +26,16 @@ class Settings(BaseSettings):
     anthropic_api_key: SecretStr | None = None
     adzuna_app_id: str | None = None
     adzuna_app_key: SecretStr | None = None
+    # Jooble has one key per country site (jp.jooble.org, tw.jooble.org): Japan and Taiwan.
+    jooble_jp_key: SecretStr | None = None
+    jooble_tw_key: SecretStr | None = None
+    claude_model: str = "claude-opus-5-5"
+
+    @field_validator("*", mode="before")
+    @classmethod
+    def _blank_is_missing(cls, value: object) -> object:
+        """`KEY=` in .env means "not set", not "set to an empty string"."""
+        return None if isinstance(value, str) and not value.strip() else value
 
 
 @lru_cache

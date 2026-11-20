@@ -91,4 +91,4 @@ def test_load_jobs_returns_a_table(db_engine: Engine, adzuna_response: dict[str,
         assert df["Salary from"].dtype.kind == "f"
     finally:
         with db_engine.begin() as conn:
-            conn.exec_driver_sql("TRUNCATE job_postings")
+            conn.exec_driver_sql("TRUNCATE job_postings CASCADE")

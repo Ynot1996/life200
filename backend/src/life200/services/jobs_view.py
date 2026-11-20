@@ -6,6 +6,8 @@ from sqlalchemy import Engine, select
 from life200.db.models import JobPostingRow
 
 COLUMNS = {
+    "id": "Job id",
+    "country": "Market",
     "posted_at": "Posted",
     "title": "Title",
     "company": "Company",
