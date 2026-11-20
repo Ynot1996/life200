@@ -176,3 +176,27 @@ def test_fetch_japan_dev() -> None:
         fetch_jobs(blocked)
     with pytest.raises(JapanDevError, match="NUXT"):
         decode_nuxt("<html></html>")
+
+
+@pytest.mark.parametrize(
+    ("salary", "snippet", "expected"),
+    [
+        ("47k 至 58k元", "", (47000, 58000)),
+        ("44k元", "", (44000, 44000)),
+        ("時薪 200元", "", (None, None)),
+        ("", "月薪 40,000 ~ 55,000 元", (40000, 55000)),
+        ("", "年薪 60萬 至 80萬", (600000, 800000)),
+        ("", "待遇面議", (None, None)),
+    ],
+)
+def test_taiwan_salary_text(salary: str, snippet: str, expected: tuple[Any, Any]) -> None:
+    from life200.sources.jooble import parse_salary
+
+    low, high = parse_salary(salary, snippet)
+    assert (low, high) == tuple(None if e is None else Decimal(e) for e in expected)
+
+
+def test_junior_high_school_is_not_a_junior_role() -> None:
+    from life200.services.tagging import Seniority, classify_seniority
+
+    assert classify_seniority("Elementary & Junior High School Teacher", "")[0] == Seniority.UNCLEAR
