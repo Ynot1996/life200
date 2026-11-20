@@ -21,6 +21,11 @@ PRICES: dict[str, list[tuple[date, Decimal, Decimal]]] = {
     "claude-haiku-5-5": [(date(2026, 1, 1), Decimal("0.10"), Decimal("0.50"))],
     # Introductory rate until 2026-12-31, then the standard rate (third-party sources,
     # not confirmed on ai.google.dev/pricing).
+    # The fallback model; 3.8 launched at the same price as 3.7 (third-party sources).
+    "gemini-3.7-flash": [
+        (date(2026, 1, 1), Decimal("0.75"), Decimal("3.75")),
+        (date(2027, 1, 1), Decimal("1.50"), Decimal("7.50")),
+    ],
     "gemini-3.8-flash": [
         (date(2026, 1, 1), Decimal("0.75"), Decimal("3.75")),
         (date(2027, 1, 1), Decimal("1.50"), Decimal("7.50")),

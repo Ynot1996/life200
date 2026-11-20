@@ -21,7 +21,7 @@ A job-search co-pilot for junior and intern roles in the UK, Singapore, Japan an
 - **With a free account** (Continue with Google):
   - **My profile:** on the first visit, upload your CV and the AI fills in your details,
     experience, projects, education and skills, copying only what the CV says. After that,
-    each section has its own tab to edit: Experience, Projects, Education, Skills, Stories
+    each section has its own tab, with one card per entry to edit or delete: Experience, Projects, Education, Skills, Stories
     (STAR moments for cover letters and interviews, written by you), and Awards and other.
     It is the only source of facts for applications.
   - **Matches and apply:** jobs ranked against your profile. Press **Tailor CV and cover

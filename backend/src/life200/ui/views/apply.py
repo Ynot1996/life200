@@ -41,8 +41,13 @@ if jobs.empty:
     st.stop()
 
 ranked = rank_jobs(profile_text, jobs)
+# Raw similarity is small (often under 0.1) and means little to users, so show fit relative
+# to the best match: the top job is 100%.
+best = float(ranked.scores.max()) or 1.0
 jobs = jobs.assign(
-    Match=ranked.scores * 100, Because=ranked.reasons, Notes=jobs["Market notes"].map(notes_text)
+    Match=ranked.scores / best * 100,
+    Because=ranked.reasons,
+    Notes=jobs["Market notes"].map(notes_text),
 )
 jobs = jobs.sort_values("Match", ascending=False).head(top_n).reset_index(drop=True)
 

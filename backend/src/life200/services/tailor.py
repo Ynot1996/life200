@@ -12,6 +12,7 @@ from typing import Any
 
 import anthropic
 from google import genai
+from google.genai import errors as genai_errors
 from google.genai import types
 
 from life200.core.config import Settings
@@ -82,12 +83,13 @@ def claude_writer(api_key: str, model: str) -> Writer:
     return write
 
 
-def gemini_writer(api_key: str, model: str) -> Writer:
+def gemini_writer(api_key: str, model: str, fallback: str | None = None) -> Writer:
+    """Gemini, switching to `fallback` once when Google is overloaded (5xx, e.g. 503)."""
     client = genai.Client(api_key=api_key)
 
-    def write(system: str, user: str) -> tuple[str, Usage | None]:
+    def call(name: str, system: str, user: str) -> tuple[str, Usage | None]:
         response = client.models.generate_content(
-            model=model,
+            model=name,
             contents=user,
             config=types.GenerateContentConfig(system_instruction=system, max_output_tokens=16000),
         )
@@ -95,8 +97,16 @@ def gemini_writer(api_key: str, model: str) -> Writer:
         usage = None
         if meta is not None:
             out = (meta.candidates_token_count or 0) + (meta.thoughts_token_count or 0)
-            usage = Usage("google", model, meta.prompt_token_count or 0, out)
+            usage = Usage("google", name, meta.prompt_token_count or 0, out)
         return response.text or "", usage
+
+    def write(system: str, user: str) -> tuple[str, Usage | None]:
+        try:
+            return call(model, system, user)
+        except genai_errors.ServerError:
+            if not fallback or fallback == model:
+                raise
+            return call(fallback, system, user)
 
     return write
 
@@ -108,7 +118,10 @@ def writer_from_settings(settings: Settings) -> tuple[Writer, str] | None:
         return claude_writer(key, settings.claude_model), settings.claude_model
     if settings.gemini_api_key is not None:
         key = settings.gemini_api_key.get_secret_value()
-        return gemini_writer(key, settings.gemini_model), settings.gemini_model
+        return (
+            gemini_writer(key, settings.gemini_model, settings.gemini_fallback_model),
+            settings.gemini_model,
+        )
     return None
 
 
