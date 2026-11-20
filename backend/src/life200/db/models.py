@@ -89,14 +89,24 @@ _JSON = JSON().with_variant(JSONB(), "postgresql")
 
 
 class UserRow(Base):
-    """Someone who can log in. Passwords are stored only as salted scrypt hashes."""
+    """Someone who can log in: with Google (no password stored) or, for admins, a password.
+
+    Passwords are stored only as salted scrypt hashes. `plan` is "free" for now; it is where
+    paid tiers will hang later.
+    """
 
     __tablename__ = "users"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     email: Mapped[str] = mapped_column(String(320), unique=True)
-    password_hash: Mapped[str] = mapped_column(Text)
+    password_hash: Mapped[str | None] = mapped_column(Text)
+    name: Mapped[str | None] = mapped_column(Text)
+    auth_provider: Mapped[str] = mapped_column(
+        String(16), default="password", server_default="password"
+    )
+    plan: Mapped[str] = mapped_column(String(16), default="free", server_default="free")
     is_admin: Mapped[bool] = mapped_column(default=False)
+    last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 

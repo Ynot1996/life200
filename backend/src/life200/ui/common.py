@@ -30,6 +30,19 @@ def junior_jobs() -> pd.DataFrame:
     return df[df["Level"] == "junior"].reset_index(drop=True)
 
 
+def google_configured() -> bool:
+    """True when secrets.toml has a filled-in [auth.google], so st.login("google") works."""
+    try:
+        google = st.secrets.get("auth", {}).get("google", {})
+    except FileNotFoundError:  # no secrets.toml at all
+        return False
+    return bool(google.get("client_id")) and bool(google.get("client_secret"))
+
+
+def signed_in() -> bool:
+    return "user_id" in st.session_state
+
+
 def session() -> Session:
     new: Session = get_sessionmaker()()
     return new

@@ -9,10 +9,11 @@ from life200.ui.common import (
     junior_jobs,
     market_filters,
     notes_text,
+    signed_in,
 )
 
 df = junior_jobs()
-st.title("Junior and intern jobs")
+st.title("Junior and intern jobs for international applicants")
 st.caption(
     "Only roles whose title says junior, graduate, intern, trainee or similar (and that do not "
     "ask for more than a year of experience). Sponsor applies to UK jobs only."
@@ -70,4 +71,10 @@ st.caption(
     SOURCE_CREDIT + ". Salaries are in each market's own currency. Pay per year is the top of "
     "the range; Taiwan monthly pay is multiplied by 12."
 )
-st.page_link("views/apply.py", label="Find my best matches and apply →", icon="🎯")
+if signed_in():
+    st.page_link("views/apply.py", label="Find my best matches and apply →", icon="🎯")
+else:
+    st.info(
+        "**Sign in free** to get these jobs ranked for you, a tailored CV and cover letter for "
+        "each in a minute, and a tracker for everything you apply to."
+    )

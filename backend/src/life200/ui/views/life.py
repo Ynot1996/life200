@@ -6,9 +6,9 @@ from life200.services.documents import read_cv
 from life200.services.life_store import load_profile, save_profile
 from life200.ui.common import MARKETS, session, user_id
 
-st.title("My life")
+st.title("My profile")
 st.caption(
-    "Everything here is the only source of facts for your CVs and cover letters. "
+    "Your whole story: the only source of facts for your CVs and cover letters. "
     "Add every job, project, course, award and story, with numbers and results. "
     "More detail means better matches and stronger applications."
 )

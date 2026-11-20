@@ -243,3 +243,15 @@ def test_blank_keys_count_as_missing() -> None:
     from life200.core.config import Settings
 
     assert Settings(_env_file=None, anthropic_api_key="  ").anthropic_api_key is None
+
+
+def test_google_sign_in_creates_then_reuses_the_account(db_session: Session) -> None:
+    first = auth.sign_in_with_google(db_session, " New@Gmail.com ", "New Person")
+    again = auth.sign_in_with_google(db_session, "new@gmail.com", None)
+    assert first.id == again.id
+    assert again.auth_provider == "google"
+    assert again.plan == "free"
+    assert again.name == "New Person"
+    assert again.last_login_at is not None
+    # A Google account has no password, so password sign-in must fail.
+    assert auth.authenticate(db_session, "new@gmail.com", "anything at all") is None

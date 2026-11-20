@@ -3,6 +3,7 @@
 import hashlib
 import hmac
 import secrets
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -47,6 +48,23 @@ def create_user(session: Session, email: str, password: str, is_admin: bool = Fa
 
 def authenticate(session: Session, email: str, password: str) -> UserRow | None:
     user = session.scalar(select(UserRow).where(UserRow.email == email.strip().casefold()))
-    if user is None or not verify_password(password, user.password_hash):
+    if user is None or user.password_hash is None:
         return None
+    if not verify_password(password, user.password_hash):
+        return None
+    user.last_login_at = datetime.now(UTC)
+    return user
+
+
+def sign_in_with_google(session: Session, email: str, name: str | None) -> UserRow:
+    """Find or create the account for a Google-verified email. Signing up is just signing in."""
+    email = email.strip().casefold()
+    user = session.scalar(select(UserRow).where(UserRow.email == email))
+    if user is None:
+        user = UserRow(email=email, name=name, auth_provider="google", is_admin=False)
+        session.add(user)
+    elif name and not user.name:
+        user.name = name
+    user.last_login_at = datetime.now(UTC)
+    session.flush()
     return user

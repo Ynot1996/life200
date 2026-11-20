@@ -23,8 +23,8 @@ with session() as s:
     profile = load_profile(s, user_id())
 profile_text = profile.as_text()
 if not profile.entries:
-    st.warning("Your life profile is empty. Add your experience on **My life** first.")
-    st.page_link("views/life.py", label="Go to My life", icon="📝")
+    st.warning("Your profile is empty. Add your experience on **My profile** first.")
+    st.page_link("views/life.py", label="Go to My profile", icon="📝")
     st.stop()
 
 jobs = junior_jobs()
