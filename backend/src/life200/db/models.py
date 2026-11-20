@@ -60,6 +60,14 @@ class JobPostingRow(Base):
     sponsor_score: Mapped[float | None] = mapped_column(Float)  # 0-100 name similarity
     seniority: Mapped[str | None] = mapped_column(String(16))  # see Seniority
     seniority_reason: Mapped[str | None] = mapped_column(Text)
+    # Filled in by services/market_rules.py: per-country flags, one note each, yearly pay.
+    market_flags: Mapped[list[str]] = mapped_column(
+        JSON().with_variant(JSONB(), "postgresql"), default=list, server_default="[]"
+    )
+    market_notes: Mapped[list[str]] = mapped_column(
+        JSON().with_variant(JSONB(), "postgresql"), default=list, server_default="[]"
+    )
+    salary_year: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
 
 
 class SponsorRow(Base):

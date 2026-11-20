@@ -26,8 +26,8 @@ class Settings(BaseSettings):
     anthropic_api_key: SecretStr | None = None
     adzuna_app_id: str | None = None
     adzuna_app_key: SecretStr | None = None
-    # One Jooble key works for every country: used for Japan and Taiwan.
-    jooble_key: SecretStr | None = None
+    # Jooble keys only work on the country site that issued them: Taiwan needs a tw.jooble.org key.
+    jooble_tw_key: SecretStr | None = None
     claude_model: str = "claude-opus-5-5"
     # Gemini is used when there is no Anthropic key. Free keys: aistudio.google.com.
     gemini_api_key: SecretStr | None = None

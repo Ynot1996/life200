@@ -41,7 +41,7 @@ with st.form("basics"):
     edited = st.data_editor(
         table,
         num_rows="dynamic",
-        use_container_width=True,
+        width="stretch",
         column_config={
             "kind": st.column_config.SelectboxColumn(
                 "Kind", options=list(ENTRY_KINDS), default="story"

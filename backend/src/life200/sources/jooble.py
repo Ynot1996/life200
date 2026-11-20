@@ -1,7 +1,8 @@
-"""Fetch job postings from Jooble, for the markets Adzuna does not cover (Japan, Taiwan).
+"""Fetch job postings from Jooble's Taiwan site (Adzuna does not cover Taiwan).
 
 API: POST https://<country>.jooble.org/api/<key> with {"keywords", "location", "page"}.
-Keys are free from https://jooble.org/api/about, one per country site. Jooble's terms ask
+Keys are free, and each works only on the site that issued it. Tested 2026-11-20: a
+jooble.org key gets 403 on tw.jooble.org, and jp.jooble.org redirects to a 404. Jooble's terms ask
 that listings link to Jooble's own URL, which `link` is.
 """
 
@@ -19,7 +20,7 @@ from life200.domain.job import JobPosting
 log = logging.getLogger(__name__)
 
 SOURCE = "jooble"
-HOSTS = {"jp": "https://jp.jooble.org", "tw": "https://tw.jooble.org"}
+HOSTS = {"tw": "https://tw.jooble.org"}
 _TAGS = re.compile(r"<[^>]+>")
 
 

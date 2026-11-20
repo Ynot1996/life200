@@ -6,7 +6,16 @@ from life200.services.documents import markdown_to_docx
 from life200.services.life_store import load_profile
 from life200.services.matching import rank_jobs
 from life200.services.tailor import TailorError, tailor, writer_from_settings
-from life200.ui.common import MARKETS, SOURCE_CREDIT, SPONSOR_LABELS, junior_jobs, session, user_id
+from life200.ui.common import (
+    MARKETS,
+    SOURCE_CREDIT,
+    SPONSOR_LABELS,
+    junior_jobs,
+    market_filters,
+    notes_text,
+    session,
+    user_id,
+)
 
 st.title("Matches and apply")
 
@@ -25,20 +34,23 @@ with st.sidebar:
     top_n = st.slider("Show top", 10, 200, 50, step=10)
 if needs_sponsor:
     jobs = jobs[(jobs["Market"] != "gb") | jobs["Sponsor"].isin(["licensed", "likely"])]
+jobs = market_filters(jobs)
 if jobs.empty:
     st.info("No junior jobs in your markets yet. Run `make refresh`.")
     st.stop()
 
 ranked = rank_jobs(profile_text, jobs)
-jobs = jobs.assign(Match=ranked.scores * 100, Because=ranked.reasons)
+jobs = jobs.assign(
+    Match=ranked.scores * 100, Because=ranked.reasons, Notes=jobs["Market notes"].map(notes_text)
+)
 jobs = jobs.sort_values("Match", ascending=False).head(top_n).reset_index(drop=True)
 
 st.dataframe(
-    jobs[["Match", "Title", "Company", "Market", "Sponsor", "Because", "Posted", "Link"]].assign(
-        Market=jobs["Market"].map(MARKETS), Sponsor=jobs["Sponsor"].map(SPONSOR_LABELS)
-    ),
+    jobs[
+        ["Match", "Title", "Company", "Market", "Sponsor", "Notes", "Because", "Posted", "Link"]
+    ].assign(Market=jobs["Market"].map(MARKETS), Sponsor=jobs["Sponsor"].map(SPONSOR_LABELS)),
     hide_index=True,
-    use_container_width=True,
+    width="stretch",
     column_config={
         "Match": st.column_config.ProgressColumn(format="%.0f%%", min_value=0, max_value=100),
         "Posted": st.column_config.DateColumn(format="D MMM"),

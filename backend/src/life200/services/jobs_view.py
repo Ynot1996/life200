@@ -19,6 +19,9 @@ COLUMNS = {
     "sponsor_match": "Register name",
     "seniority": "Level",
     "seniority_reason": "Why",
+    "salary_year": "Pay per year",
+    "market_flags": "Flags",
+    "market_notes": "Market notes",
     "source": "Source",
     "url": "Link",
     "description": "Description",
@@ -31,7 +34,7 @@ def load_jobs(engine: Engine) -> pd.DataFrame:
     )
     with engine.connect() as conn:
         df = pd.DataFrame(conn.execute(stmt).mappings().all(), columns=list(COLUMNS))
-    for col in ("salary_min", "salary_max"):
+    for col in ("salary_min", "salary_max", "salary_year"):
         df[col] = pd.to_numeric(df[col])
     df["posted_at"] = pd.to_datetime(df["posted_at"], utc=True)
     return df.rename(columns=COLUMNS)

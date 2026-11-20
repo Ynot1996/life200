@@ -217,13 +217,13 @@ def test_jooble_search_parses_and_stops_on_empty_page() -> None:
         seen.append(request)
         return httpx.Response(200, json=next(pages))
 
-    client = JoobleClient("jp", "k", http=httpx.Client(transport=httpx.MockTransport(handler)))
+    client = JoobleClient("tw", "k", http=httpx.Client(transport=httpx.MockTransport(handler)))
     jobs = list(client.search("エンジニア", pages=5))
     assert len(jobs) == 1
     assert len(seen) == 2
-    assert jobs[0].country == "jp"
+    assert jobs[0].country == "tw"
     assert jobs[0].title == "新卒 エンジニア"
-    assert seen[0].url.host == "jp.jooble.org"
+    assert seen[0].url.host == "tw.jooble.org"
 
 
 def test_jooble_bad_key_does_not_leak() -> None:
