@@ -141,7 +141,7 @@ _SENIOR_TITLE = re.compile(
     r"mid[- ]?level|experienced)\b"
 )
 _JUNIOR_TITLE = re.compile(
-    r"\b(junior|jnr|jr|graduate|grad|entry[- ]level|trainee|apprentice|apprenticeship|"
+    r"\b(junior(?! high)|jnr|jr|graduate|grad|entry[- ]level|trainee|apprentice|apprenticeship|"
     r"intern|internship|placement|associate)\b"
 )
 # "3+ years", "3-5 years", "3\u20135 years" (en dash), "at least 2 years"
