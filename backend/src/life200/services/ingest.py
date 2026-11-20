@@ -17,6 +17,7 @@ from life200.domain.job import JobPosting
 # Columns refreshed when a job is fetched again. first_seen is deliberately not here.
 _UPDATABLE = (
     "title",
+    "country",
     "company",
     "location",
     "salary_min",

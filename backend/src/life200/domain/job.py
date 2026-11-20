@@ -1,6 +1,6 @@
 """A job posting, in one shape no matter which platform it came from.
 
-Every job source (Adzuna now, Reed later) converts its own format into `JobPosting`,
+Every job source (Adzuna, Jooble) converts its own format into `JobPosting`,
 so the rest of the app never needs to know where a job came from.
 """
 
@@ -16,6 +16,7 @@ from life200.domain.profile import DomainModel
 class JobPosting(DomainModel):
     source: str  # the platform, e.g. "adzuna"
     source_id: str  # the platform's own id for this job
+    country: str = "gb"  # ISO code of the job market: gb, sg, jp, tw
     title: str = Field(min_length=1)
     company: str | None = None
     location: str | None = None

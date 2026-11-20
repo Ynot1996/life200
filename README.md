@@ -1,6 +1,6 @@
 # Life200
 
-A job-search co-pilot for the UK, in two halves on one job-data pipeline:
+A job-search co-pilot for junior and intern roles in the UK, Singapore, Japan and Taiwan, in two halves on one job-data pipeline:
 
 - **Find:** new jobs from several platforms in one sortable table, each tagged with whether
   the employer holds a visa-sponsor licence and whether the role is truly junior.
@@ -13,14 +13,22 @@ A job-search co-pilot for the UK, in two halves on one job-data pipeline:
 
 ## Status
 
-**MVP working.** `make refresh` collects UK junior tech jobs from Adzuna and tags each one:
+**Find and apply both work.** Log in, and the app has four pages:
 
-- **Sponsor:** licensed, likely, agency, paid course, or not found, matched against the Home
-  Office register of licensed sponsors.
-- **Level:** junior, unclear, or not junior, with the reason (title words, years of experience asked).
+- **Matches and apply:** your best-fitting junior jobs, ranked against your life profile
+  (TF-IDF similarity, with the shared words shown). Pick one, press **Tailor CV and cover
+  letter**, and Claude writes both from your profile only. Any number, email or link that is
+  not in your profile or the job ad is flagged. Edit, download as Word, open the
+  application page, then mark it applied.
+- **All junior jobs:** only roles tagged junior or intern. Unclear and senior roles are hidden.
+  The table filters by market, sponsor (UK) and posting date.
+- **My life:** your details, and every job, project, course, award and story. You can import
+  an existing CV (PDF or Word). This is the only source of facts for applications.
+- **My applications:** a tracker with the statuses draft, applied, interview, offer and rejected.
 
-`make app` opens the jobs table in the browser. Next: a second job source (Reed) and daily
-automatic refresh.
+Jobs come from Adzuna (UK and Singapore) and Jooble (Japan and Taiwan). Each UK job is
+tagged licensed, likely, agency, paid course or not found, matched against the Home Office
+register of licensed sponsors.
 
 - [ROADMAP.md](ROADMAP.md) — phases
 - [docs/product/brief.md](docs/product/brief.md) — what the product is and who it is for
@@ -32,14 +40,16 @@ automatic refresh.
 | Layer | Choice | Why |
 |---|---|---|
 | Language | Python 3.12 | One language for the API, data science and AI |
-| Job data | httpx, Adzuna API | Fetching UK job postings, with retries |
+| Job data | httpx, Adzuna and Jooble APIs | UK, Singapore, Japan and Taiwan jobs, with retries |
 | Data science | pandas, scikit-learn, Jupyter | Market analysis and the truly-junior classifier |
 | API | FastAPI + Pydantic v2 | Typed, async, auto-generated OpenAPI docs |
 | Database | PostgreSQL 16 + pgvector | One store for relational data and embeddings |
 | ORM / migrations | SQLAlchemy 2.0 + Alembic | Industry standard for Python + Postgres |
 | Background jobs | Celery + Redis | Scheduled job search, LLM calls, form filling |
 | Browser automation | Playwright | Pre-filling application forms |
-| Frontend | Streamlit | Jobs table, charts and CV review, all in Python |
+| Frontend | Streamlit | Login, jobs table, life profile, CV review, tracker, all in Python |
+| AI | Claude API (anthropic SDK) | Tailored CV and cover letter per job |
+| Documents | python-docx, pypdf | Word downloads, CV import |
 | Matching | rapidfuzz, pandas | Company names against the sponsor register; data for the table |
 | Tooling | uv, ruff, mypy (strict), pytest, pre-commit | Fast, modern Python toolchain |
 | Infra | Docker Compose, GitHub Actions | Reproducible local dev and CI on every push |
@@ -53,17 +63,24 @@ brew install --cask orbstack          # runs Postgres + Redis in Docker
 uv tool install pre-commit
 
 cd ~/Desktop/Applications/life200     # every command below runs from here
-cp .env.example .env                  # fill in API keys later
+cp .env.example .env                  # Adzuna, Anthropic and Jooble keys (see below)
 pre-commit install
 
 make install                          # creates backend/.venv and uv.lock
 make check                            # lint + type check + tests (same as CI)
 make up                               # start Postgres + Redis (needs Docker or OrbStack)
 make migrate                          # create the database tables
-make refresh                          # sponsor register + UK jobs from Adzuna, tagged (~3 min)
-make app                              # jobs table on http://localhost:8501
+make admin EMAIL=you@example.com      # create your login (asks for a password)
+make refresh                          # sponsor register + jobs from all four markets, tagged
+make app                              # log in on http://localhost:8501
 make dev                              # API on http://localhost:8000/docs
 ```
+
+Keys in `.env`:
+
+- `LIFE200_ADZUNA_APP_ID` and `LIFE200_ADZUNA_APP_KEY`: the UK and Singapore jobs.
+- `LIFE200_ANTHROPIC_API_KEY`: tailored CVs and cover letters.
+- `LIFE200_JOOBLE_JP_KEY` and `LIFE200_JOOBLE_TW_KEY`: Japan and Taiwan jobs. These are free from jp.jooble.org/api/about and tw.jooble.org/api/about. A market without a key is skipped.
 
 Commit `backend/uv.lock` — CI installs with `uv sync --frozen`, so the lock file is required.
 
@@ -77,10 +94,10 @@ life200/
 │   │   ├── core/       config, logging, shared infrastructure
 │   │   ├── db/         database tables and connection (SQLAlchemy)
 │   │   ├── domain/     Pydantic models — the language of the business
-│   │   ├── services/   business logic (saving jobs, sponsor and seniority tags, fact guard)
-│   │   ├── sources/    job platforms (Adzuna) and the sponsor register
-│   │   ├── ui/         Streamlit jobs table (`make app`)
-│   │   └── cli.py      command line: `make refresh`, `make fetch`, `make sponsors`
+│   │   ├── services/   business logic (jobs, tags, auth, matching, tailoring, tracker)
+│   │   ├── sources/    job platforms (Adzuna, Jooble) and the sponsor register
+│   │   ├── ui/         Streamlit app: login, then pages in ui/views/ (`make app`)
+│   │   └── cli.py      command line: `make admin`, `make refresh`, `make fetch`, `make sponsors`
 │   ├── migrations/     Alembic scripts that change the database
 │   └── tests/
 ├── docs/
@@ -97,6 +114,14 @@ life200/
 - Recruitment agencies hide the real employer, so their jobs are tagged "agency".
 - Adzuna descriptions are cut short, so an experience requirement late in a job ad can be missed.
 - Tags are rules, not machine learning yet; each one shows its reason so it can be checked.
+- Japan and Taiwan junior tags rely on title words such as 新卒, 未経験, 實習 and 新鮮人, so
+  some junior roles there are missed. The Jooble endpoints for jp and tw are untested with a
+  real key.
+- Matching is word overlap (TF-IDF), not meaning, so it can miss a strong match that is
+  described in different words.
+- **Applying is not automatic.** Each employer's site needs your own account and often a
+  CAPTCHA, and auto-submitting breaks most sites' terms. Life200 prepares the documents and
+  opens the page, and you submit.
 
 ## What Life200 deliberately does not do
 
