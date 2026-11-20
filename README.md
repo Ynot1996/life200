@@ -13,18 +13,24 @@ A job-search co-pilot for junior and intern roles in the UK, Singapore, Japan an
 
 ## Status
 
-**Find and apply both work.** Log in, and the app has four pages:
+**Find and apply both work, for anyone.**
 
-- **Matches and apply:** your best-fitting junior jobs, ranked against your life profile
-  (TF-IDF similarity, with the shared words shown). Pick one, press **Tailor CV and cover
-  letter**, and Claude or Gemini writes both from your profile only. Any number, email or link that is
-  not in your profile or the job ad is flagged. Edit, download as Word, open the
-  application page, then mark it applied.
-- **All junior jobs:** only roles tagged junior or intern. Unclear and senior roles are hidden.
-  The table filters by market, sponsor (UK) and posting date.
-- **My life:** your details, and every job, project, course, award and story. You can import
-  an existing CV (PDF or Word). This is the only source of facts for applications.
-- **My applications:** a tracker with the statuses draft, applied, interview, offer and rejected.
+- **Without an account:** search junior and intern jobs in the UK, Singapore, Japan and
+  Taiwan, with each market's filters (sponsor licence, Japanese required, Employment Pass
+  salary, top-university requirement).
+- **With a free account** (Continue with Google):
+  - **My profile:** your details and every job, project, course, award and story. You can
+    import an existing CV (PDF or Word). It is the only source of facts for applications.
+  - **Matches and apply:** jobs ranked against your profile. Press **Tailor CV and cover
+    letter** and the AI writes both from your profile only, flagging any number or link that
+    is not in your profile or the job ad. Edit, download as Word, open the application page,
+    mark it applied.
+  - **My applications:** your history, with the statuses draft, applied, interview, offer and rejected.
+
+Each user's profile and applications are private to their account. Every account has a
+`plan` (all "free" today), ready for paid tiers later. Every AI call is logged with its user,
+model, tokens and list-price cost (`ai_usage` table), and admins see totals on **AI costs**,
+so credit prices can be set from real numbers.
 
 Each market has its own sources and rules. Every rule is a sidebar switch, and each job
 shows why it was flagged.
@@ -53,7 +59,7 @@ shows why it was flagged.
 | ORM / migrations | SQLAlchemy 2.0 + Alembic | Industry standard for Python + Postgres |
 | Background jobs | Celery + Redis | Scheduled job search, LLM calls, form filling |
 | Browser automation | Playwright | Pre-filling application forms |
-| Frontend | Streamlit | Login, jobs table, life profile, CV review, tracker, all in Python |
+| Frontend | Streamlit | Public job search; Google sign-in; profile, CV review, tracker |
 | AI | Claude API or Gemini API | Tailored CV and cover letter per job |
 | Documents | python-docx, pypdf | Word downloads, CV import |
 | Matching | rapidfuzz, pandas | Company names against the sponsor register; data for the table |
@@ -76,9 +82,9 @@ make install                          # creates backend/.venv and uv.lock
 make check                            # lint + type check + tests (same as CI)
 make up                               # start Postgres + Redis (needs Docker or OrbStack)
 make migrate                          # create the database tables
-make admin EMAIL=you@example.com      # create your login (asks for a password)
+make admin EMAIL=you@example.com      # optional: an admin login with a password
 make refresh                          # sponsor register + jobs from all four markets, tagged
-make app                              # log in on http://localhost:8501
+make app                              # http://localhost:8501: search, or sign in
 make dev                              # API on http://localhost:8000/docs
 ```
 
@@ -92,6 +98,24 @@ Keys in `.env`:
   `gemini-3.8-flash`).
 - `LIFE200_JOOBLE_TW_KEY`: Taiwan jobs. Jooble keys only work on the site that issued them,
   so request it at tw.jooble.org/api/about. Without it, Taiwan is skipped.
+
+### Google sign-in
+
+Users sign in with Google; their account is created on first sign-in. Set it up once:
+
+1. Open console.cloud.google.com and create a project (for example "Life200").
+2. Go to **Google Auth Platform**, click **Get started**, and enter the app name and your
+   email. Choose **External** for the audience.
+3. Under **Audience**, add your Google email as a test user. While the app is in testing
+   mode, only test users can sign in. Press **Publish app** when real users should get in.
+4. Under **Clients**, create a client of type **Web application**. Add this to
+   **Authorized redirect URIs**: `http://localhost:8501/oauth2callback`
+5. Paste the client ID and client secret into `backend/.streamlit/secrets.toml`. The file
+   is git-ignored, and `secrets.example.toml` shows the format. Restart `make app`.
+
+Only the basic scopes are used (`openid`, `email`, `profile`), so Google does not need to
+review the app. When the app is deployed, add the public address as a second redirect URI
+and set `redirect_uri` to it.
 
 Commit `backend/uv.lock` — CI installs with `uv sync --frozen`, so the lock file is required.
 

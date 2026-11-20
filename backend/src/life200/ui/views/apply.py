@@ -1,6 +1,7 @@
 import streamlit as st
 
 from life200.core.config import get_settings
+from life200.services.ai_costs import record
 from life200.services.applications import get_application, save_draft, set_status
 from life200.services.documents import markdown_to_docx
 from life200.services.life_store import load_profile
@@ -23,8 +24,8 @@ with session() as s:
     profile = load_profile(s, user_id())
 profile_text = profile.as_text()
 if not profile.entries:
-    st.warning("Your life profile is empty. Add your experience on **My life** first.")
-    st.page_link("views/life.py", label="Go to My life", icon="📝")
+    st.warning("Your profile is empty. Add your experience on **My profile** first.")
+    st.page_link("views/life.py", label="Go to My profile", icon="📝")
     st.stop()
 
 jobs = junior_jobs()
@@ -86,6 +87,8 @@ if st.button("✍️ Tailor CV and cover letter", type="primary", disabled=write
             st.stop()
     with session() as s, s.begin():
         save_draft(s, user_id(), job_id, result.cv, result.cover_letter, result.warnings)
+        if result.usage is not None:
+            record(s, user_id(), "tailor", result.usage, job_id=job_id)
     st.rerun()
 if writer is None:
     st.info("Set LIFE200_GEMINI_API_KEY or LIFE200_ANTHROPIC_API_KEY in .env to write CVs.")

@@ -18,6 +18,8 @@ node_modules/
 .env
 .env.*
 !.env.example
+.streamlit/secrets.toml
+**/.streamlit/secrets.toml
 
 # Local data (uploaded CVs, generated files)
 data/
