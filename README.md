@@ -83,7 +83,7 @@ Keys in `.env`:
   is used if its key is set, otherwise Gemini (free key from aistudio.google.com; on the free
   tier Google may use what you send to improve its products). Models are set with
   `LIFE200_CLAUDE_MODEL` (default `claude-opus-5-5`) and `LIFE200_GEMINI_MODEL` (default
-  `gemini-flash-latest`).
+  `gemini-3.8-flash`).
 - `LIFE200_JOOBLE_KEY`: Japan and Taiwan jobs. One free key from jooble.org/api/about covers
   both. Without it, those markets are skipped.
 

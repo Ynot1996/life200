@@ -147,7 +147,7 @@ def test_writer_prefers_claude_then_gemini() -> None:
     assert writer_from_settings(Settings(_env_file=None)) is None
     gemini = writer_from_settings(Settings(_env_file=None, gemini_api_key="g"))
     assert gemini is not None
-    assert gemini[1] == "gemini-flash-latest"
+    assert gemini[1] == "gemini-3.8-flash"
     both = Settings(_env_file=None, gemini_api_key="g", anthropic_api_key="a")
     assert writer_from_settings(both)[1].startswith("claude")  # type: ignore[index]
 

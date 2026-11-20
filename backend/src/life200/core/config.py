@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     claude_model: str = "claude-opus-5-5"
     # Gemini is used when there is no Anthropic key. Free keys: aistudio.google.com.
     gemini_api_key: SecretStr | None = None
-    gemini_model: str = "gemini-flash-latest"  # alias Google moves to its newest Flash model
+    gemini_model: str = "gemini-3.8-flash"  # newest Flash on the API as of 2026-11-20
 
     @field_validator("*", mode="before")
     @classmethod
