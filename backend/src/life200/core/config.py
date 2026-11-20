@@ -19,10 +19,13 @@ class Settings(BaseSettings):
     )
 
     env: Literal["local", "test", "prod"] = "local"
-    database_url: str = "postgresql+asyncpg://life200:life200@localhost:5432/life200"
+    # psycopg is the Postgres driver SQLAlchemy uses to talk to the database.
+    database_url: str = "postgresql+psycopg://life200:life200@localhost:5432/life200"
     redis_url: str = "redis://localhost:6379/0"
     # SecretStr hides the value in logs and repr() — never print API keys.
     anthropic_api_key: SecretStr | None = None
+    adzuna_app_id: str | None = None
+    adzuna_app_key: SecretStr | None = None
 
 
 @lru_cache
