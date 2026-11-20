@@ -33,7 +33,7 @@ from life200.sources.sponsor_register import download_register
 # tag then sorts out which jobs are truly junior. Each page of 50 costs one API call.
 DEFAULT_SEARCHES = ("junior", "graduate", "entry level", "trainee", "apprentice")
 CATEGORY = "it-jobs"
-# Adzuna covers the UK and Singapore. Japan and Taiwan come from Jooble (one key per country).
+# Adzuna covers the UK and Singapore. Japan and Taiwan come from Jooble (one key for both).
 ADZUNA_MARKETS = ("gb", "sg")
 JOOBLE_MARKETS = ("jp", "tw")
 JOOBLE_SEARCHES = {
@@ -132,12 +132,11 @@ def refresh(where: str | None, pages: int, max_days_old: int) -> int:
                 continue
             total_new += _save(jobs, f"{country} {what!r}")
 
-    settings = get_settings()
-    for country in JOOBLE_MARKETS:
-        key = getattr(settings, f"jooble_{country}_key")
-        if key is None:
-            print(f"  {country}: skipped, set LIFE200_JOOBLE_{country.upper()}_KEY in .env")
-            continue
+    key = get_settings().jooble_key
+    if key is None:
+        print("  jp, tw: skipped, set LIFE200_JOOBLE_KEY in .env")
+    for country in JOOBLE_MARKETS if key else ():
+        assert key is not None
         jooble = JoobleClient(country, key.get_secret_value(), page_delay_seconds=1.0)
         for what in JOOBLE_SEARCHES[country]:
             try:

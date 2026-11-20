@@ -84,7 +84,8 @@ Keys in `.env`:
   tier Google may use what you send to improve its products). Models are set with
   `LIFE200_CLAUDE_MODEL` (default `claude-opus-5-5`) and `LIFE200_GEMINI_MODEL` (default
   `gemini-flash-latest`).
-- `LIFE200_JOOBLE_JP_KEY` and `LIFE200_JOOBLE_TW_KEY`: Japan and Taiwan jobs. These are free from jp.jooble.org/api/about and tw.jooble.org/api/about. A market without a key is skipped.
+- `LIFE200_JOOBLE_KEY`: Japan and Taiwan jobs. One free key from jooble.org/api/about covers
+  both. Without it, those markets are skipped.
 
 Commit `backend/uv.lock` — CI installs with `uv sync --frozen`, so the lock file is required.
 
