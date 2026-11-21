@@ -82,12 +82,17 @@ def claude_writer(api_key: str, model: str) -> Writer:
     client = claude_client(api_key)
 
     def write(system: str, user: str) -> tuple[str, Usage | None]:
+        # Haiku has no server-side refusal fallback; bigger models retry on one if declined.
+        extra: dict[str, Any] = (
+            {}
+            if "haiku" in model
+            else {"betas": ["server-side-fallback-2026-07-01"], "fallbacks": "default"}
+        )
         response = client.beta.messages.create(
             model=model,
             max_tokens=16000,
-            betas=["server-side-fallback-2026-07-01"],
-            fallbacks="default",  # if a safety classifier declines, retry on a fallback model
             output_config={"effort": "medium"},
+            **extra,
             system=system,
             messages=[{"role": "user", "content": user}],
         )
@@ -131,17 +136,34 @@ def gemini_writer(api_key: str, model: str, fallback: str | None = None) -> Writ
     return write
 
 
+def with_backup(first: Writer, backup: Writer) -> Writer:
+    """Use `backup` when `first` fails for a reason other than declining the request."""
+
+    def write(system: str, user: str) -> tuple[str, Usage | None]:
+        try:
+            return first(system, user)
+        except TailorError:
+            raise
+        except Exception:
+            return backup(system, user)
+
+    return write
+
+
 def writer_from_settings(settings: Settings) -> tuple[Writer, str] | None:
-    """Claude if its key is set, else Gemini, else None. Also returns a label for the UI."""
-    if settings.anthropic_api_key is not None:
-        key = settings.anthropic_api_key.get_secret_value()
-        return claude_writer(key, settings.claude_model), settings.claude_model
+    """Claude if its key is set (Gemini as backup), else Gemini, else None, plus a UI label."""
+    gemini = None
     if settings.gemini_api_key is not None:
-        key = settings.gemini_api_key.get_secret_value()
-        return (
-            gemini_writer(key, settings.gemini_model, settings.gemini_fallback_model),
+        gemini = gemini_writer(
+            settings.gemini_api_key.get_secret_value(),
             settings.gemini_model,
+            settings.gemini_fallback_model,
         )
+    if settings.anthropic_api_key is not None:
+        claude = claude_writer(settings.anthropic_api_key.get_secret_value(), settings.claude_model)
+        return (with_backup(claude, gemini) if gemini else claude), settings.claude_model
+    if gemini is not None:
+        return gemini, settings.gemini_model
     return None
 
 

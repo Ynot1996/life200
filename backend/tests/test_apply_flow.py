@@ -283,3 +283,20 @@ def test_usage_is_recorded_per_user(db_session: Session) -> None:
     mine = df[df["User"] == "cost@example.com"]
     assert len(mine) == 1
     assert mine["Cost (USD)"].iloc[0] == pytest.approx(0.00115)
+
+
+def test_backup_writer_used_when_first_fails() -> None:
+    from life200.services.tailor import TailorError, with_backup
+
+    def down(system: str, user: str) -> tuple[str, Usage | None]:
+        raise TimeoutError
+
+    def declines(system: str, user: str) -> tuple[str, Usage | None]:
+        raise TailorError("declined")
+
+    def ok(system: str, user: str) -> tuple[str, Usage | None]:
+        return "backup", None
+
+    assert with_backup(down, ok)("s", "u")[0] == "backup"
+    with pytest.raises(TailorError):
+        with_backup(declines, ok)("s", "u")
