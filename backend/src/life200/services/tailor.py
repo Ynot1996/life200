@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import anthropic
+import httpx
 from google import genai
 from google.genai import errors as genai_errors
 from google.genai import types
@@ -58,8 +59,27 @@ def job_prompt(job: dict[str, Any]) -> str:
 Writer = Callable[[str, str], tuple[str, Usage | None]]
 
 
+# Never let a user wait for ever: one capped attempt per model (main, then fallback), so the
+# worst case is about two minutes before a clear error.
+REQUEST_TIMEOUT_SECONDS = 60
+
+
+def claude_client(api_key: str) -> anthropic.Anthropic:
+    return anthropic.Anthropic(api_key=api_key, timeout=REQUEST_TIMEOUT_SECONDS * 2, max_retries=1)
+
+
+def gemini_client(api_key: str) -> genai.Client:
+    return genai.Client(
+        api_key=api_key,
+        http_options=types.HttpOptions(
+            timeout=REQUEST_TIMEOUT_SECONDS * 1000,  # milliseconds
+            retry_options=types.HttpRetryOptions(attempts=1),
+        ),
+    )
+
+
 def claude_writer(api_key: str, model: str) -> Writer:
-    client = anthropic.Anthropic(api_key=api_key)
+    client = claude_client(api_key)
 
     def write(system: str, user: str) -> tuple[str, Usage | None]:
         response = client.beta.messages.create(
@@ -85,7 +105,7 @@ def claude_writer(api_key: str, model: str) -> Writer:
 
 def gemini_writer(api_key: str, model: str, fallback: str | None = None) -> Writer:
     """Gemini, switching to `fallback` once when Google is overloaded (5xx, e.g. 503)."""
-    client = genai.Client(api_key=api_key)
+    client = gemini_client(api_key)
 
     def call(name: str, system: str, user: str) -> tuple[str, Usage | None]:
         response = client.models.generate_content(
@@ -103,7 +123,7 @@ def gemini_writer(api_key: str, model: str, fallback: str | None = None) -> Writ
     def write(system: str, user: str) -> tuple[str, Usage | None]:
         try:
             return call(model, system, user)
-        except genai_errors.ServerError:
+        except (genai_errors.ServerError, httpx.TimeoutException):
             if not fallback or fallback == model:
                 raise
             return call(fallback, system, user)

@@ -156,3 +156,15 @@ class AiUsageRow(Base):
     output_tokens: Mapped[int]
     cost_usd: Mapped[Decimal | None] = mapped_column(Numeric(12, 6))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ProfileVersionRow(Base):
+    """A copy of a profile before it was changed, so any save can be undone."""
+
+    __tablename__ = "profile_versions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    data: Mapped[dict[str, Any]] = mapped_column(_JSON)
+    reason: Mapped[str] = mapped_column(Text, default="")  # what change came after this copy
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

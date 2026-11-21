@@ -8,12 +8,20 @@ purpose, since a CV rarely contains them.
 import json
 import re
 from dataclasses import dataclass
+from typing import Any
 
+from google.genai import types
 from pydantic import ValidationError
 
+from life200.core.config import Settings
 from life200.domain.life import LifeEntry, LifeProfile
 from life200.services.ai_costs import Usage
-from life200.services.tailor import TailorError, Writer
+from life200.services.tailor import (
+    TailorError,
+    Writer,
+    claude_client,
+    gemini_client,
+)
 
 SYSTEM = """You extract a CV into JSON. Copy facts only; never invent or improve anything.
 
@@ -63,6 +71,54 @@ def _json_part(reply: str) -> str:
     """The JSON object in a reply, even when wrapped in ```json fences or prose."""
     m = re.search(r"\{.*\}", reply, re.DOTALL)
     return m.group(0) if m else reply
+
+
+TRANSCRIBE = (
+    "Transcribe this document to plain text, exactly as written, in reading order. "
+    "Keep every line, date and number. Do not summarise, translate or add anything."
+)
+
+
+def transcribe(settings: Settings, data: bytes, mime: str) -> tuple[str, Usage | None]:
+    """Read an image or scanned PDF with the AI (it can see the page)."""
+    try:
+        if settings.anthropic_api_key is not None:
+            import base64
+
+            client = claude_client(settings.anthropic_api_key.get_secret_value())
+            kind = "document" if mime == "application/pdf" else "image"
+            source = {"type": "base64", "media_type": mime, "data": base64.b64encode(data).decode()}
+            content: Any = [{"type": kind, "source": source}, {"type": "text", "text": TRANSCRIBE}]
+            response = client.messages.create(
+                model=settings.claude_model,
+                max_tokens=16000,
+                output_config={"effort": "low"},
+                messages=[{"role": "user", "content": content}],
+            )
+            text = "".join(b.text for b in response.content if b.type == "text")
+            u = response.usage
+            return text, Usage("anthropic", settings.claude_model, u.input_tokens, u.output_tokens)
+        if settings.gemini_api_key is not None:
+            gclient = gemini_client(settings.gemini_api_key.get_secret_value())
+            gresponse = gclient.models.generate_content(
+                model=settings.gemini_model,
+                contents=types.Content(
+                    role="user",
+                    parts=[
+                        types.Part.from_bytes(data=data, mime_type=mime),
+                        types.Part(text=TRANSCRIBE),
+                    ],
+                ),
+            )
+            meta = gresponse.usage_metadata
+            usage = None
+            if meta is not None:
+                out = (meta.candidates_token_count or 0) + (meta.thoughts_token_count or 0)
+                usage = Usage("google", settings.gemini_model, meta.prompt_token_count or 0, out)
+            return gresponse.text or "", usage
+    except Exception as exc:
+        raise TailorError(f"the AI could not read that file: {type(exc).__name__}") from exc
+    raise TailorError("reading images and scans needs an AI key in .env")
 
 
 def merge(current: LifeProfile, imported: LifeProfile) -> LifeProfile:

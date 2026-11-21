@@ -2,14 +2,11 @@
 
 import streamlit as st
 
-from life200.core.config import get_settings
 from life200.domain.life import SECTIONS, LifeEntry, LifeProfile
-from life200.services.ai_costs import record
-from life200.services.cv_import import import_cv, merge
-from life200.services.documents import read_cv
-from life200.services.life_store import load_profile, save_profile
-from life200.services.tailor import TailorError, writer_from_settings
+from life200.services.documents import ALL_TYPES
+from life200.services.life_store import list_versions, load_profile, restore_version, save_profile
 from life200.ui.common import MARKETS, session, user_id
+from life200.ui.import_review import render_review, start_import
 
 
 def _save(profile: LifeProfile) -> None:
@@ -17,34 +14,13 @@ def _save(profile: LifeProfile) -> None:
         save_profile(s, user_id(), profile)
 
 
-def _import(upload: object, current: LifeProfile) -> None:
-    writer = writer_from_settings(get_settings())
-    if writer is None:
-        st.error("CV import needs an AI key (LIFE200_GEMINI_API_KEY) in .env.")
-        return
-    write, model = writer
-    text = read_cv(upload.name, upload.getvalue())  # type: ignore[attr-defined]
-    with st.spinner(f"Reading your CV with {model}… (about 30 seconds)"):
-        try:
-            result = import_cv(write, text)
-        except TailorError as exc:
-            st.error(str(exc))
-            return
-    keep_cv = LifeEntry(kind="cv", title=upload.name, text=text)  # type: ignore[attr-defined]
-    merged = merge(current, result.profile)
-    merged = merged.model_copy(update={"entries": [*merged.entries, keep_cv]})
-    with session() as s, s.begin():
-        save_profile(s, user_id(), merged)
-        if result.usage is not None:
-            record(s, user_id(), "cv_import", result.usage)
-    st.session_state["imported"] = len(result.profile.entries)
-    st.rerun()
-
-
 with session() as s:
     profile = load_profile(s, user_id())
 
 st.title("My profile")
+
+if render_review(profile):
+    st.stop()  # finish the review before anything else
 
 # ---------- First visit: start from a CV ----------
 if not profile.entries:
@@ -54,13 +30,15 @@ if not profile.entries:
         "and skills. You can edit everything afterwards. Nothing is invented: we only copy "
         "what your CV says."
     )
-    upload = st.file_uploader("Your CV (PDF or Word)", type=["pdf", "docx", "txt", "md"])
-    if upload and st.button("Fill in my profile", type="primary"):
-        _import(upload, profile)
+    upload = st.file_uploader(
+        "Your CV: PDF, Word, OpenDocument, RTF, text, or a photo or scan", type=ALL_TYPES
+    )
+    if upload and st.button("Read my CV", type="primary"):
+        start_import(upload.name, upload.getvalue(), profile)
     st.caption("No CV yet? Fill in the sections below by hand.")
 
-if count := st.session_state.pop("imported", None):
-    st.success(f"Imported {count} entries from your CV. Check each section, then add your stories.")
+if done := st.session_state.pop("import_done", None):
+    st.success(done)
 
 st.caption(
     "This is the only source of facts for your CVs and cover letters. More detail means "
@@ -193,10 +171,26 @@ for tab, (kind, (_label, hint)) in zip(tabs, SECTIONS.items(), strict=True):
 # ---------- Later imports ----------
 if profile.entries:
     with st.expander("Import another CV"):
-        st.caption("Adds anything new from the CV. Nothing you already have is changed or removed.")
-        again = st.file_uploader("CV (PDF or Word)", type=["pdf", "docx", "txt", "md"], key="again")
-        if again and st.button("Add from this CV"):
-            _import(again, profile)
+        st.caption(
+            "Upload a newer CV, a LinkedIn PDF, a cover letter or a certificate. You review every "
+            "change before it is saved, and nothing you have is deleted."
+        )
+        again = st.file_uploader("Document", type=ALL_TYPES, key="again")
+        if again and st.button("Read this document"):
+            start_import(again.name, again.getvalue(), profile)
+
+with st.expander("History (undo)"):
+    with session() as s:
+        versions = list_versions(s, user_id())
+    if not versions:
+        st.caption("Each time you save, the previous version is kept here.")
+    for vid, saved_at, reason in versions[:10]:
+        c1, c2 = st.columns([4, 1])
+        c1.write(f"{saved_at:%d %b %H:%M}: before {reason}")
+        if c2.button("Restore", key=f"restore_{vid}"):
+            with session() as s, s.begin():
+                restore_version(s, user_id(), vid)
+            st.rerun()
 
 with st.expander("What the CV writer sees"):
     st.text(profile.as_text() or "Nothing yet.")
