@@ -101,3 +101,21 @@ def test_gemini_falls_back_when_overloaded(monkeypatch: pytest.MonkeyPatch) -> N
     assert usage == Usage("google", "backup", 10, 5)
     with pytest.raises(errors.ServerError):
         tailor.gemini_writer("k", "main", None)("sys", "user")
+
+
+def test_old_full_name_is_split_and_market_details_fall_back() -> None:
+    p = LifeProfile.model_validate(
+        {
+            "full_name": "Alex Doe",
+            "preferred_name": "Al",
+            "phone": "+44 7000",
+            "location": "London",
+            "market_details": {"sg": {"phone": "+65 9000"}},
+        }
+    )
+    assert (p.first_name, p.last_name, p.full_name) == ("Alex", "Doe", "Al Doe")
+    assert p.details_for("sg").phone == "+65 9000"
+    assert p.details_for("sg").location == "London"  # blank falls back to the default
+    assert "+65 9000" in p.as_text("sg")
+    assert "+44 7000" in p.as_text("gb")
+    assert "Legal name: Alex Doe" in p.as_text()

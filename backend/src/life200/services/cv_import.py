@@ -27,7 +27,9 @@ SYSTEM = """You extract a CV into JSON. Copy facts only; never invent or improve
 
 Return ONLY a JSON object with these keys (use "" or [] when the CV does not say):
 {
-  "full_name": "", "email": "", "phone": "", "location": "",
+  "first_name": "", "last_name": "family name",
+  "preferred_name": "only if the CV shows one, e.g. Tony",
+  "email": "", "phone": "", "location": "",
   "links": "one URL per line", "headline": "the CV's own summary line, if any",
   "right_to_work": "visa or work permission, only if the CV states it",
   "entries": [
@@ -126,7 +128,9 @@ def merge(current: LifeProfile, imported: LifeProfile) -> LifeProfile:
     basics = {
         name: getattr(imported, name)
         for name in (
-            "full_name",
+            "first_name",
+            "last_name",
+            "preferred_name",
             "email",
             "phone",
             "location",
