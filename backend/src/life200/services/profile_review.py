@@ -16,7 +16,9 @@ from rapidfuzz import fuzz
 from life200.domain.life import LifeEntry, LifeProfile
 
 BASIC_FIELDS = {
-    "full_name": "Full name",
+    "first_name": "First name",
+    "last_name": "Last name",
+    "preferred_name": "Preferred name",
     "email": "Email",
     "phone": "Phone",
     "location": "Location",

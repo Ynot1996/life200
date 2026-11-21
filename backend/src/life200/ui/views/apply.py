@@ -86,7 +86,11 @@ if st.button("✍️ Tailor CV and cover letter", type="primary", disabled=write
     write, model = writer
     with st.spinner(f"Writing from your life profile with {model}… (about a minute)"):
         try:
-            result = tailor(write, profile_text, {str(k): v for k, v in job.to_dict().items()})
+            result = tailor(
+                write,
+                profile.as_text(str(job.get("Market") or "")),
+                {str(k): v for k, v in job.to_dict().items()},
+            )
         except TailorError as exc:
             st.error(str(exc))
             st.stop()

@@ -2,7 +2,7 @@
 
 import streamlit as st
 
-from life200.domain.life import SECTIONS, LifeEntry, LifeProfile
+from life200.domain.life import SECTIONS, LifeEntry, LifeProfile, MarketDetails
 from life200.services.documents import ALL_TYPES
 from life200.services.life_store import list_versions, load_profile, restore_version, save_profile
 from life200.ui.common import MARKETS, session, user_id
@@ -46,39 +46,71 @@ st.caption(
 )
 
 # ---------- Basic details ----------
-with st.expander("Basic details", expanded=not profile.full_name), st.form("basics"):
-    c1, c2 = st.columns(2)
-    full_name = c1.text_input("Full name", profile.full_name)
-    email = c2.text_input("Email", profile.email)
-    phone = c1.text_input("Phone", profile.phone)
-    location = c2.text_input("Location", profile.location)
+with st.expander("Basic details", expanded=not profile.first_name), st.form("basics"):
+    c1, c2, c3 = st.columns(3)
+    first_name = c1.text_input("First name", profile.first_name)
+    last_name = c2.text_input("Last name", profile.last_name)
+    preferred_name = c3.text_input(
+        "Preferred name", profile.preferred_name, help="Used on your CV instead of the first name."
+    )
+    email = st.text_input("Email", profile.email)
     headline = st.text_input(
         "Headline", profile.headline, placeholder="MSc CS graduate, Python, data"
     )
     target_roles = st.text_input("Roles I want", profile.target_roles)
-    right_to_work = st.text_input(
-        "Right to work", profile.right_to_work, placeholder="e.g. UK Graduate visa until 2028"
-    )
     links = st.text_area("Links (one per line)", profile.links, height=80)
+
+    st.markdown("**Phone, location and right to work**")
+    st.caption(
+        "The default is used everywhere. Each market can have its own, e.g. a local phone "
+        "number or a different visa. Blank fields use the default."
+    )
     markets = st.multiselect(
         "Markets I want to work in",
         list(MARKETS),
         default=[m for m in profile.markets if m in MARKETS],
         format_func=MARKETS.__getitem__,
     )
+    shown = ["default", *[m for m in MARKETS if m in profile.markets]]
+    contact: dict[str, MarketDetails] = {}
+    for tab, key in zip(st.tabs(["Default", *[MARKETS[m] for m in shown[1:]]]), shown, strict=True):
+        own = (
+            MarketDetails(
+                phone=profile.phone, location=profile.location, right_to_work=profile.right_to_work
+            )
+            if key == "default"
+            else profile.market_details.get(key, MarketDetails())
+        )
+        ph = "" if key == "default" else "Same as default"
+        c1, c2 = tab.columns(2)
+        contact[key] = MarketDetails(
+            phone=c1.text_input("Phone", own.phone, key=f"ph_{key}", placeholder=ph),
+            location=c2.text_input("Location", own.location, key=f"loc_{key}", placeholder=ph),
+            right_to_work=tab.text_input(
+                "Right to work",
+                own.right_to_work,
+                key=f"rtw_{key}",
+                placeholder=ph or "e.g. UK Graduate visa until 2028",
+            ),
+        )
+    st.caption("Added a market? Save, and its tab appears.")
     if st.form_submit_button("Save details", type="primary"):
+        default = contact.pop("default")
         _save(
             profile.model_copy(
                 update={
-                    "full_name": full_name,
+                    "first_name": first_name,
+                    "last_name": last_name,
+                    "preferred_name": preferred_name,
                     "email": email,
-                    "phone": phone,
-                    "location": location,
+                    "phone": default.phone,
+                    "location": default.location,
+                    "right_to_work": default.right_to_work,
                     "headline": headline,
                     "target_roles": target_roles,
-                    "right_to_work": right_to_work,
                     "links": links,
                     "markets": markets,
+                    "market_details": {**profile.market_details, **contact},
                 }
             )
         )
@@ -193,4 +225,15 @@ with st.expander("History (undo)"):
             st.rerun()
 
 with st.expander("What the CV writer sees"):
+    options = ["", *[m for m in MARKETS if m in profile.markets]]
+    chosen = st.selectbox(
+        "Applying in",
+        options,
+        index=options.index(profile.active_market) if profile.active_market in options else 0,
+        format_func=lambda m: MARKETS.get(m, "Default"),
+        help="Applications use the details for the job's own market automatically.",
+    )
+    if chosen != profile.active_market:
+        _save(profile.model_copy(update={"active_market": chosen}))
+        st.rerun()
     st.text(profile.as_text() or "Nothing yet.")
