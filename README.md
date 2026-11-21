@@ -19,8 +19,12 @@ A job-search co-pilot for junior and intern roles in the UK, Singapore, Japan an
   Taiwan, with each market's filters (sponsor licence, Japanese required, Employment Pass
   salary, top-university requirement).
 - **With a free account** (Continue with Google):
-  - **My profile:** on the first visit, upload your CV and the AI fills in your details,
-    experience, projects, education and skills, copying only what the CV says. After that,
+  - **My profile:** upload a CV (PDF, Word, OpenDocument, RTF, HTML, text, or a photo or
+    scan) and the AI reads it. Nothing is saved until you review it: every item is marked
+    new, changed or already there, and every line and number is checked against the
+    document, with anything not found flagged and unticked. Later documents only add: for
+    an item you already have, you keep yours, take the CV's, or combine them. Every save can be
+    undone under History. After that,
     each section has its own tab, with one card per entry to edit or delete: Experience, Projects, Education, Skills, Stories
     (STAR moments for cover letters and interviews, written by you), and Awards and other.
     It is the only source of facts for applications.

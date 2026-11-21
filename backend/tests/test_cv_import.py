@@ -95,9 +95,7 @@ def test_gemini_falls_back_when_overloaded(monkeypatch: pytest.MonkeyPatch) -> N
             )
             return SimpleNamespace(text="ok", usage_metadata=meta)
 
-    monkeypatch.setattr(
-        tailor.genai, "Client", lambda api_key: SimpleNamespace(models=FakeModels())
-    )
+    monkeypatch.setattr(tailor.genai, "Client", lambda **kw: SimpleNamespace(models=FakeModels()))
     text, usage = tailor.gemini_writer("k", "main", "backup")("sys", "user")
     assert (text, called) == ("ok", ["main", "backup"])
     assert usage == Usage("google", "backup", 10, 5)

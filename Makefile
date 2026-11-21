@@ -13,7 +13,7 @@ install:     ## Install backend deps
 dev:         ## Run API with hot reload
 	cd backend && uv run uvicorn life200.main:app --reload
 app:         ## Open the app in the browser (log in first)
-	cd backend && uv run streamlit run src/life200/ui/app.py
+	cd backend && uv run streamlit run src/life200/ui/app.py --server.address localhost
 admin:       ## Create your login: make admin EMAIL=you@example.com
 	cd backend && uv run python -m life200.cli admin "$(EMAIL)"
 refresh:     ## Sponsor register + UK, Singapore, Japan, Taiwan searches + tagging
