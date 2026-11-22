@@ -6,6 +6,7 @@ the job ad, since those are the facts an LLM most often invents. Flags are shown
 """
 
 import re
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
@@ -108,8 +109,18 @@ def claude_writer(api_key: str, model: str) -> Writer:
     return write
 
 
+TOTAL_SECONDS = 150  # stop trying further backup models after this long
+
+
+def _busy(exc: Exception) -> bool:
+    """Google is overloaded or out of free quota for this model: worth trying the next one."""
+    if isinstance(exc, (genai_errors.ServerError, httpx.TimeoutException)):
+        return True
+    return isinstance(exc, genai_errors.ClientError) and exc.code in (404, 429)
+
+
 def gemini_writer(api_key: str, model: str, fallback: str | None = None) -> Writer:
-    """Gemini, switching to `fallback` once when Google is overloaded (5xx, e.g. 503)."""
+    """Gemini, moving down a list of free models (comma-separated `fallback`) when one is busy."""
     client = gemini_client(api_key)
 
     def call(name: str, system: str, user: str) -> tuple[str, Usage | None]:
@@ -125,13 +136,19 @@ def gemini_writer(api_key: str, model: str, fallback: str | None = None) -> Writ
             usage = Usage("google", name, meta.prompt_token_count or 0, out)
         return response.text or "", usage
 
+    names = [model, *[m.strip() for m in (fallback or "").split(",") if m.strip() != model]]
+    names = [m for i, m in enumerate(names) if m and m not in names[:i]]
+
     def write(system: str, user: str) -> tuple[str, Usage | None]:
-        try:
-            return call(model, system, user)
-        except (genai_errors.ServerError, httpx.TimeoutException):
-            if not fallback or fallback == model:
-                raise
-            return call(fallback, system, user)
+        started = time.monotonic()
+        for i, name in enumerate(names):
+            try:
+                return call(name, system, user)
+            except Exception as exc:
+                last = i == len(names) - 1
+                if last or not _busy(exc) or time.monotonic() - started > TOTAL_SECONDS:
+                    raise
+        raise AssertionError("unreachable")
 
     return write
 

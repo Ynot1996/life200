@@ -300,3 +300,24 @@ def test_backup_writer_used_when_first_fails() -> None:
     assert with_backup(down, ok)("s", "u")[0] == "backup"
     with pytest.raises(TailorError):
         with_backup(declines, ok)("s", "u")
+
+
+def test_gemini_moves_down_free_models_when_busy(monkeypatch: pytest.MonkeyPatch) -> None:
+    from types import SimpleNamespace
+
+    from google.genai import errors as genai_errors
+
+    from life200.services import tailor as t
+
+    tried: list[str] = []
+
+    def generate_content(model: str, **kw: object) -> object:
+        tried.append(model)
+        if model != "c":
+            raise genai_errors.ServerError(503, {"error": {"message": "busy"}})
+        return SimpleNamespace(text="done", usage_metadata=None)
+
+    fake = SimpleNamespace(models=SimpleNamespace(generate_content=generate_content))
+    monkeypatch.setattr(t, "gemini_client", lambda key: fake)
+    assert t.gemini_writer("k", "a", "b, c")("s", "u")[0] == "done"
+    assert tried == ["a", "b", "c"]
