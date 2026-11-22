@@ -28,11 +28,12 @@ class Settings(BaseSettings):
     adzuna_app_key: SecretStr | None = None
     # Jooble keys only work on the country site that issued them: Taiwan needs a tw.jooble.org key.
     jooble_tw_key: SecretStr | None = None
-    claude_model: str = "claude-opus-5-5"
+    claude_model: str = "claude-haiku-5-5"  # cheap and reliable for CVs and imports
     # Gemini is used when there is no Anthropic key. Free keys: aistudio.google.com.
     gemini_api_key: SecretStr | None = None
     gemini_model: str = "gemini-3.8-flash"  # newest Flash on the API as of 2026-11-20
-    gemini_fallback_model: str | None = "gemini-3.7-flash"  # used when the main one is overloaded
+    # Free backups, tried in order when the main model is overloaded (comma separated).
+    gemini_fallback_model: str | None = "gemini-3.7-flash,gemini-3.5-flash,gemini-3.5-flash-lite"
 
     @field_validator("*", mode="before")
     @classmethod

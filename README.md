@@ -101,7 +101,7 @@ Keys in `.env`:
 - `LIFE200_GEMINI_API_KEY` or `LIFE200_ANTHROPIC_API_KEY`: tailored CVs and cover letters. Claude
   is used if its key is set, otherwise Gemini (free key from aistudio.google.com; on the free
   tier Google may use what you send to improve its products). Models are set with
-  `LIFE200_CLAUDE_MODEL` (default `claude-opus-5-5`) and `LIFE200_GEMINI_MODEL` (default
+  `LIFE200_CLAUDE_MODEL` (default `claude-haiku-5-5`; Gemini is the backup when both keys are set) and `LIFE200_GEMINI_MODEL` (default
   `gemini-3.8-flash`).
 - `LIFE200_JOOBLE_TW_KEY`: Taiwan jobs. Jooble keys only work on the site that issued them,
   so request it at tw.jooble.org/api/about. Without it, Taiwan is skipped.

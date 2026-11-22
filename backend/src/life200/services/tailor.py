@@ -6,6 +6,7 @@ the job ad, since those are the facts an LLM most often invents. Flags are shown
 """
 
 import re
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
@@ -82,12 +83,17 @@ def claude_writer(api_key: str, model: str) -> Writer:
     client = claude_client(api_key)
 
     def write(system: str, user: str) -> tuple[str, Usage | None]:
+        # Haiku has no server-side refusal fallback; bigger models retry on one if declined.
+        extra: dict[str, Any] = (
+            {}
+            if "haiku" in model
+            else {"betas": ["server-side-fallback-2026-07-01"], "fallbacks": "default"}
+        )
         response = client.beta.messages.create(
             model=model,
             max_tokens=16000,
-            betas=["server-side-fallback-2026-07-01"],
-            fallbacks="default",  # if a safety classifier declines, retry on a fallback model
             output_config={"effort": "medium"},
+            **extra,
             system=system,
             messages=[{"role": "user", "content": user}],
         )
@@ -103,8 +109,18 @@ def claude_writer(api_key: str, model: str) -> Writer:
     return write
 
 
+TOTAL_SECONDS = 150  # stop trying further backup models after this long
+
+
+def _busy(exc: Exception) -> bool:
+    """Google is overloaded or out of free quota for this model: worth trying the next one."""
+    if isinstance(exc, (genai_errors.ServerError, httpx.TimeoutException)):
+        return True
+    return isinstance(exc, genai_errors.ClientError) and exc.code in (404, 429)
+
+
 def gemini_writer(api_key: str, model: str, fallback: str | None = None) -> Writer:
-    """Gemini, switching to `fallback` once when Google is overloaded (5xx, e.g. 503)."""
+    """Gemini, moving down a list of free models (comma-separated `fallback`) when one is busy."""
     client = gemini_client(api_key)
 
     def call(name: str, system: str, user: str) -> tuple[str, Usage | None]:
@@ -120,28 +136,51 @@ def gemini_writer(api_key: str, model: str, fallback: str | None = None) -> Writ
             usage = Usage("google", name, meta.prompt_token_count or 0, out)
         return response.text or "", usage
 
+    names = [model, *[m.strip() for m in (fallback or "").split(",") if m.strip() != model]]
+    names = [m for i, m in enumerate(names) if m and m not in names[:i]]
+
+    def write(system: str, user: str) -> tuple[str, Usage | None]:
+        started = time.monotonic()
+        for i, name in enumerate(names):
+            try:
+                return call(name, system, user)
+            except Exception as exc:
+                last = i == len(names) - 1
+                if last or not _busy(exc) or time.monotonic() - started > TOTAL_SECONDS:
+                    raise
+        raise AssertionError("unreachable")
+
+    return write
+
+
+def with_backup(first: Writer, backup: Writer) -> Writer:
+    """Use `backup` when `first` fails for a reason other than declining the request."""
+
     def write(system: str, user: str) -> tuple[str, Usage | None]:
         try:
-            return call(model, system, user)
-        except (genai_errors.ServerError, httpx.TimeoutException):
-            if not fallback or fallback == model:
-                raise
-            return call(fallback, system, user)
+            return first(system, user)
+        except TailorError:
+            raise
+        except Exception:
+            return backup(system, user)
 
     return write
 
 
 def writer_from_settings(settings: Settings) -> tuple[Writer, str] | None:
-    """Claude if its key is set, else Gemini, else None. Also returns a label for the UI."""
-    if settings.anthropic_api_key is not None:
-        key = settings.anthropic_api_key.get_secret_value()
-        return claude_writer(key, settings.claude_model), settings.claude_model
+    """Claude if its key is set (Gemini as backup), else Gemini, else None, plus a UI label."""
+    gemini = None
     if settings.gemini_api_key is not None:
-        key = settings.gemini_api_key.get_secret_value()
-        return (
-            gemini_writer(key, settings.gemini_model, settings.gemini_fallback_model),
+        gemini = gemini_writer(
+            settings.gemini_api_key.get_secret_value(),
             settings.gemini_model,
+            settings.gemini_fallback_model,
         )
+    if settings.anthropic_api_key is not None:
+        claude = claude_writer(settings.anthropic_api_key.get_secret_value(), settings.claude_model)
+        return (with_backup(claude, gemini) if gemini else claude), settings.claude_model
+    if gemini is not None:
+        return gemini, settings.gemini_model
     return None
 
 
