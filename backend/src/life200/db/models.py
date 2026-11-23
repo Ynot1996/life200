@@ -168,3 +168,36 @@ class ProfileVersionRow(Base):
     data: Mapped[dict[str, Any]] = mapped_column(_JSON)
     reason: Mapped[str] = mapped_column(Text, default="")  # what change came after this copy
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class InterviewRow(Base):
+    """One upcoming interview: the company, role and job description to prepare for."""
+
+    __tablename__ = "interviews"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    company: Mapped[str] = mapped_column(Text, default="")
+    role: Mapped[str] = mapped_column(Text, default="")
+    job_description: Mapped[str] = mapped_column(Text, default="")
+    when: Mapped[str] = mapped_column(Text, default="")  # free text, e.g. "Tue 2 Dec 10:00"
+    notes: Mapped[str] = mapped_column(Text, default="")  # interviewers, format, research
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class InterviewAnswerRow(Base):
+    """A question and the user's prepared answer. No interview id means a general question."""
+
+    __tablename__ = "interview_answers"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    interview_id: Mapped[int | None] = mapped_column(
+        ForeignKey("interviews.id", ondelete="CASCADE"), index=True
+    )
+    question: Mapped[str] = mapped_column(Text)
+    answer: Mapped[str] = mapped_column(Text, default="")
+    warnings: Mapped[list[str]] = mapped_column(_JSON, default=list)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
