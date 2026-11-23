@@ -73,6 +73,7 @@ if signed_in:
         find_jobs,
         st.Page("views/life.py", title="My profile", icon="📝"),
         st.Page("views/tracker.py", title="My applications", icon="📌"),
+        st.Page("views/interview.py", title="Interview prep", icon="🎤"),
     ]
     if st.session_state.get("is_admin"):
         pages.append(st.Page("views/costs.py", title="AI costs (admin)", icon="💷"))
