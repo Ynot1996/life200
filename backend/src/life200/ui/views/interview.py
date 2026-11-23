@@ -41,18 +41,32 @@ from life200.ui.common import session, user_id
 
 AUTO = "Automatic (fastest free model)"
 NEW = "+ New category"
+LIKELY = "Likely for this job"
 
 st.title("Interview prep")
-st.caption(
-    "Answers are drafted only from your profile: your experience, projects and **stories**. "
-    "The more stories you add on My profile, the better they get. Edit every answer into "
-    "your own words, then practise it aloud."
-)
 
 settings = get_settings()
 with session() as s:
     profile = load_profile(s, user_id())
 models = model_choices(settings)
+
+c1, c2 = st.columns([5, 1], vertical_alignment="bottom")
+query = c1.text_input(
+    "Search questions",
+    placeholder="Search questions, e.g. team, failure, why",
+    label_visibility="collapsed",
+)
+with c2.popover("AI settings", icon=":material/tune:", use_container_width=True):
+    picked_model = st.selectbox(
+        "Model for drafts", [AUTO, *models], disabled=not models, key="ai_model"
+    )
+    how_many = int(
+        st.number_input("Versions per click", 1, 3, 2, key="ai_count", help="More take longer.")
+    )
+    st.caption(
+        "Answers use only your profile: experience, projects and **stories**. Edit every "
+        "answer into your own words, then practise it aloud."
+    )
 if not models:
     st.info("Set LIFE200_GEMINI_API_KEY in .env to draft answers with AI.")
 if not any(e.kind == "story" for e in profile.entries):
@@ -60,11 +74,6 @@ if not any(e.kind == "story" for e in profile.entries):
         'You have no stories yet. Behavioural questions ("tell me about a time...") need '
         "them: add a few on **My profile → Stories**."
     )
-
-c1, c2, c3 = st.columns([2, 1, 2])
-picked_model = c1.selectbox("AI model for drafts", [AUTO, *models], disabled=not models)
-how_many = c2.number_input("Drafts per click", 1, 3, 2, help="Several drafts take a bit longer.")
-query = c3.text_input("Search questions", placeholder="e.g. team, failure, why")
 
 
 @dataclass
@@ -105,16 +114,37 @@ def _items(
     return (defaults if with_defaults else []) + saved
 
 
-def _draft(item: Item, interview: InterviewRow | None) -> None:
+def _save(item: Item, interview: InterviewRow | None, **changes: Any) -> None:
+    with session() as s, s.begin():
+        save_answer(
+            s,
+            user_id(),
+            interview.id if interview else None,
+            item.question,
+            changes.pop("answer", None),
+            changes.pop("warnings", None),
+            category=changes.pop("category", item.category),
+            drafts=changes.pop("drafts", None),
+            **item.where(),
+        )
+
+
+def _toggle(key: str) -> bool:
+    """A header that opens and closes, remembered across reruns."""
+    return bool(st.session_state.get(key, False))
+
+
+def _generate(item: Item, interview: InterviewRow | None) -> None:
+    """New AI versions are added to the ones already there; nothing is replaced."""
     model = None if picked_model == AUTO else picked_model
     found = writer_from_settings(settings, model, quick=True)
     assert found is not None
     write, label = found
-    with st.spinner(f"Writing {how_many} draft(s) with {label}…"):
+    with st.spinner(f"Writing {how_many} version(s) with {label}…"):
         try:
             drafts = draft_answers(write, profile.as_text(), item.question, interview, how_many)
         except TailorError as exc:
-            st.error(f"{exc}. Your saved answer was not changed.")
+            st.error(f"{exc}. Nothing was changed.")
             return
     with session() as s, s.begin():
         save_answer(
@@ -123,7 +153,7 @@ def _draft(item: Item, interview: InterviewRow | None) -> None:
             interview.id if interview else None,
             item.question,
             category=item.category,
-            drafts=[d.as_json() for d in drafts],
+            drafts=item.drafts + [d.as_json() for d in drafts],
             **item.where(),
         )
         if drafts and drafts[0].usage is not None:
@@ -131,55 +161,78 @@ def _draft(item: Item, interview: InterviewRow | None) -> None:
     st.rerun()
 
 
+def _warn(warnings: list[str]) -> None:
+    if warnings:
+        st.warning("Not in your profile, check these:\n\n- " + "\n- ".join(warnings))
+
+
 def _card(item: Item, key: str, interview: InterviewRow | None, categories: list[str]) -> None:
-    interview_id = interview.id if interview else None
-    done = "✅ " if item.answer.strip() else ""
-    with st.expander(f"{done}{item.question}"):
-        if item.drafts:
-            st.markdown(f"**AI drafts** ({len(item.drafts)}). Pick one, then edit it below.")
-            tabs = st.tabs([f"Draft {i + 1}" for i in range(len(item.drafts))])
-            for i, (tab, d) in enumerate(zip(tabs, item.drafts, strict=True)):
-                with tab:
-                    if d.get("warnings"):
-                        st.warning("Not in your profile:\n\n- " + "\n- ".join(d["warnings"]))
-                    st.write(d.get("text", ""))
-                    st.caption(f"Written by {d.get('model') or 'AI'}")
-                    if st.button("Use this draft", key=f"use_{key}_{i}"):
-                        with session() as s, s.begin():
-                            save_answer(
-                                s,
-                                user_id(),
-                                interview_id,
-                                item.question,
-                                d.get("text", ""),
-                                list(d.get("warnings", [])),
-                                category=item.category,
-                                **item.where(),
-                            )
-                        st.session_state.pop(f"ans_{key}", None)
-                        st.rerun()
-        if item.warnings:
-            st.warning(
-                "Check these, they are not in your profile:\n\n- " + "\n- ".join(item.warnings)
-            )
-        label = "What I answered, and how it went" if item.kind == REAL else "My answer"
-        text = st.text_area(label, item.answer, height=200, key=f"ans_{key}")
-        c1, c2, c3, c4 = st.columns([1, 1.3, 2, 1], vertical_alignment="bottom")
-        if c1.button("Save", key=f"save_{key}", type="primary"):
-            with session() as s, s.begin():
-                save_answer(
-                    s,
-                    user_id(),
-                    interview_id,
-                    item.question,
-                    text,
-                    category=item.category,
-                    **item.where(),
-                )
+    open_key = f"open_{key}"
+    is_open = _toggle(open_key)
+    done = ":material/check_circle:" if item.answer.strip() else ":material/radio_button_unchecked:"
+    n = len(item.drafts)
+    extra = f"  ·  {n} version{'s' if n != 1 else ''}" if n else ""
+    with st.container(border=True):
+        if st.button(
+            f"{item.question}{extra}",
+            key=f"t_{key}",
+            type="tertiary",
+            icon=done,
+            use_container_width=True,
+        ):
+            st.session_state[open_key] = not is_open
             st.rerun()
-        label = "✍️ Draft with AI" if not item.drafts else "✍️ New drafts"
-        if c2.button(label, key=f"draft_{key}", disabled=not models):
-            _draft(item, interview)
+        if not is_open:
+            return
+
+        main_label = "What I answered" if item.kind == REAL else "⭐ My answer"
+        tabs = st.tabs([main_label, *[f"Version {i + 1}" for i in range(n)]])
+        with tabs[0]:
+            _warn(item.warnings)
+            text = st.text_area(
+                "Answer", item.answer, height=220, key=f"ans_{key}", label_visibility="collapsed"
+            )
+            if st.button("Save", key=f"save_{key}", type="primary"):
+                _save(item, interview, answer=text)
+                st.rerun()
+        for i, (tab, d) in enumerate(zip(tabs[1:], item.drafts, strict=True)):
+            with tab:
+                _warn(list(d.get("warnings", [])))
+                vtext = st.text_area(
+                    "Version",
+                    d.get("text", ""),
+                    height=220,
+                    key=f"ver_{key}_{i}",
+                    label_visibility="collapsed",
+                )
+                st.caption(f"Written by {d.get('model') or 'you'}")
+                b1, b2, b3, _ = st.columns([1, 1.3, 1, 3])
+                if b1.button("Save", key=f"vs_{key}_{i}"):
+                    drafts = [dict(x) for x in item.drafts]
+                    drafts[i]["text"] = vtext
+                    _save(item, interview, drafts=drafts)
+                    st.rerun()
+                if b2.button("Use as my answer", key=f"vm_{key}_{i}", icon=":material/star:"):
+                    _save(item, interview, answer=vtext, warnings=list(d.get("warnings", [])))
+                    st.session_state.pop(f"ans_{key}", None)
+                    st.rerun()
+                if b3.button("Delete", key=f"vd_{key}_{i}"):
+                    _save(item, interview, drafts=item.drafts[:i] + item.drafts[i + 1 :])
+                    for j in range(i, n):
+                        st.session_state.pop(f"ver_{key}_{j}", None)
+                    st.rerun()
+
+        c1, c2, c3, c4 = st.columns([1.4, 1.2, 2, 1], vertical_alignment="bottom")
+        if c1.button(
+            f"Generate {how_many} with AI",
+            key=f"draft_{key}",
+            disabled=not models,
+            icon=":material/auto_awesome:",
+        ):
+            _generate(item, interview)
+        if c2.button("Blank version", key=f"blank_{key}", icon=":material/add:"):
+            _save(item, interview, drafts=[*item.drafts, {"text": "", "warnings": [], "model": ""}])
+            st.rerun()
         move = c3.selectbox(
             "Category",
             categories,
@@ -187,15 +240,54 @@ def _card(item: Item, key: str, interview: InterviewRow | None, categories: list
             key=f"cat_{key}",
         )
         if move != item.category:
-            with session() as s, s.begin():
-                save_answer(
-                    s, user_id(), interview_id, item.question, category=move, **item.where()
-                )
+            _save(item, interview, category=move)
             st.rerun()
-        if item.answer_id is not None and c4.button("Delete", key=f"del_{key}"):
+        if item.answer_id is not None and c4.button("Delete question", key=f"del_{key}"):
             with session() as s, s.begin():
                 delete_answer(s, user_id(), item.answer_id)
+            st.session_state.pop(open_key, None)
             st.rerun()
+
+
+def _add_and_rename(
+    interview: InterviewRow | None,
+    prefix: str,
+    categories: list[str],
+    round_id: int | None,
+    kind: str,
+    rename: bool,
+) -> None:
+    cols = st.columns([1, 1, 3] if rename else [1, 4])
+    title = "Add a real question" if kind == REAL else "Add a question"
+    with cols[0].popover(title, icon=":material/add:", use_container_width=True):
+        new_q = st.text_input("Question", key=f"nq_{prefix}")
+        cat = st.selectbox("Category", [*categories, NEW], key=f"nc_{prefix}")
+        new_cat = st.text_input("Category name", key=f"ncn_{prefix}") if cat == NEW else ""
+        if st.button("Add", key=f"add_{prefix}", type="primary", disabled=not new_q.strip()):
+            chosen = new_cat.strip() if cat == NEW else cat
+            with session() as s, s.begin():
+                save_answer(
+                    s,
+                    user_id(),
+                    interview.id if interview else None,
+                    new_q,
+                    category=chosen or OTHER,
+                    round_id=round_id,
+                    kind=kind,
+                )
+            for k in (f"nq_{prefix}", f"ncn_{prefix}"):
+                st.session_state.pop(k, None)
+            st.rerun()
+    if rename:
+        with cols[1].popover("Rename category", icon=":material/edit:", use_container_width=True):
+            old = st.selectbox(
+                "Category", [c for c in categories if c != OTHER] or [OTHER], key=f"ro_{prefix}"
+            )
+            new = st.text_input("New name", key=f"rn_{prefix}")
+            if st.button("Rename", key=f"rb_{prefix}", disabled=not new.strip()):
+                with session() as s, s.begin():
+                    rename_category(s, user_id(), old, new)
+                st.rerun()
 
 
 def _questions(
@@ -209,6 +301,7 @@ def _questions(
     found = sorted({i.category for i in items} - set(defaults) - {OTHER})
     categories = [*defaults, *found, OTHER]
     prefix = f"i{interview.id}r{round_id}{kind}" if interview else "g"
+    _add_and_rename(interview, prefix, categories, round_id, kind, rename=with_defaults)
 
     shown = set(search([i.question for i in items], query)) if query else None
     any_shown = False
@@ -218,47 +311,44 @@ def _questions(
             continue
         any_shown = True
         answered = sum(bool(i.answer.strip()) for i in in_cat)
-        st.subheader(f"{cat}  ·  {answered}/{len(in_cat)} ready")
-        for n, item in enumerate(in_cat):
-            _card(item, f"{prefix}_{item.answer_id or 'd'}_{cat}_{n}", interview, categories)
+        cat_key = f"cat_open_{prefix}_{cat}"
+        is_open = bool(query) or _toggle(cat_key)
+        arrow = ":material/expand_more:" if is_open else ":material/chevron_right:"
+        if st.button(
+            f"**{cat}**  ·  {answered}/{len(in_cat)} ready",
+            key=f"h_{cat_key}",
+            type="tertiary",
+            icon=arrow,
+        ):
+            st.session_state[cat_key] = not is_open
+            st.rerun()
+        if is_open:
+            for item in in_cat:
+                ident = item.answer_id or f"d{GENERAL_QUESTIONS.index(item.question)}"
+                _card(item, f"{prefix}_{ident}", interview, categories)
     if not any_shown:
         st.caption("No questions match." if query else "No questions yet.")
 
-    title = "Add a question they asked" if kind == REAL else "Add a question or category"
-    with (
-        st.expander(title, icon=":material/add:"),
-        st.form(f"add_q_{prefix}", clear_on_submit=True, border=False),
-    ):
-        new_q = st.text_input("Question")
-        c1, c2 = st.columns(2)
-        cat = c1.selectbox("Category", [*categories, NEW])
-        new_cat = c2.text_input("New category name", help=f'Used when "{NEW}" is chosen')
-        if st.form_submit_button("Add") and new_q.strip():
-            chosen = new_cat.strip() if cat == NEW else cat
-            with session() as s, s.begin():
-                save_answer(
-                    s,
-                    user_id(),
-                    interview.id if interview else None,
-                    new_q,
-                    category=chosen or OTHER,
-                    round_id=round_id,
-                    kind=kind,
-                )
-            st.rerun()
-    if not with_defaults:
-        return
-    with (
-        st.expander("Rename a category", icon=":material/edit:"),
-        st.form(f"rename_{prefix}", border=False),
-    ):
-        c1, c2 = st.columns(2)
-        old = c1.selectbox("Category", [c for c in categories if c != OTHER] or [OTHER])
-        new = c2.text_input("New name")
-        if st.form_submit_button("Rename") and new.strip():
-            with session() as s, s.begin():
-                rename_category(s, user_id(), old, new)
-            st.rerun()
+
+def _suggest(row: InterviewRow, round_id: int) -> None:
+    found_writer = writer_from_settings(
+        settings, None if picked_model == AUTO else picked_model, quick=True
+    )
+    assert found_writer is not None
+    write, wlabel = found_writer
+    with st.spinner(f"Reading the job description with {wlabel}…"):
+        try:
+            found, usage = suggest_questions(write, row)
+        except TailorError as exc:
+            st.error(str(exc))
+            return
+    with session() as s, s.begin():
+        for q in found:
+            save_answer(s, user_id(), row.id, q, category=LIKELY, round_id=round_id)
+        if usage is not None:
+            record(s, user_id(), "interview", usage)
+    st.session_state[f"cat_open_i{row.id}r{round_id}{PRACTICE}_{LIKELY}"] = True
+    st.rerun()
 
 
 general, company = st.tabs(["Common questions", "My interviews"])
@@ -305,11 +395,13 @@ with company:
             c1, c2 = st.columns(2)
             company_name = c1.text_input("Company *", job.company or "" if job else "")
             role = c2.text_input("Role *", job.title if job else "")
-            jd = st.text_area(
-                "Job description (optional, makes answers fit the role)",
-                job.description if job else "",
-                height=150,
-            )
+            with st.expander("Job description (optional, makes answers fit the role)"):
+                jd = st.text_area(
+                    "Job description",
+                    job.description if job else "",
+                    height=450,
+                    label_visibility="collapsed",
+                )
             if st.form_submit_button("Create interview", type="primary"):
                 if not company_name.strip() or not role.strip():
                     st.error("Add the company and the role.")
@@ -336,11 +428,19 @@ with company:
         for r in rounds:
             s.expunge(r)
 
-    with st.expander("Interview details"), st.form("details"):
+    d1, d2 = st.columns(2)
+    with d2.expander("Job description", icon=":material/description:"), st.form("jd"):
+        jd = st.text_area(
+            "Job description", row.job_description, height=500, label_visibility="collapsed"
+        )
+        if st.form_submit_button("Save job description", type="primary"):
+            with session() as s, s.begin():
+                save_interview(s, user_id(), row.id, job_description=jd)
+            st.rerun()
+    with d1.expander("Interview details", icon=":material/edit:"), st.form("details"):
         c1, c2 = st.columns(2)
         company_name = c1.text_input("Company", row.company)
         role = c2.text_input("Role", row.role)
-        jd = st.text_area("Job description", row.job_description, height=200)
         notes = st.text_area(
             "Notes", row.notes, height=100, placeholder="Interviewers, format, what you researched"
         )
@@ -353,7 +453,6 @@ with company:
                     row.id,
                     company=company_name,
                     role=role,
-                    job_description=jd,
                     notes=notes,
                 )
             st.rerun()
@@ -440,35 +539,33 @@ with company:
                         add_practice(s, user_id(), row.id, r.id, picks)
                     st.session_state.pop(f"picks_{r.id}", None)
                     st.rerun()
+                with session() as s:
+                    likely = sum(
+                        a.round_id == r.id and a.category == LIKELY
+                        for a in list_answers(s, user_id(), row.id)
+                    )
+                confirm = f"confirm_suggest_{r.id}"
                 if st.button(
-                    "💡 Suggest likely questions for this job",
+                    "Suggest likely questions for this job",
                     key=f"suggest_{r.id}",
                     disabled=not models,
+                    icon=":material/lightbulb:",
                 ):
-                    found_writer = writer_from_settings(
-                        settings, None if picked_model == AUTO else picked_model, quick=True
+                    if likely:
+                        st.session_state[confirm] = True
+                    else:
+                        _suggest(row, r.id)
+                if st.session_state.get(confirm):
+                    st.warning(
+                        f"You already have {likely} suggested questions for this round. "
+                        "Suggest more? Ones you already have are not added twice."
                     )
-                    assert found_writer is not None
-                    write, wlabel = found_writer
-                    with st.spinner(f"Reading the job description with {wlabel}…"):
-                        try:
-                            found, usage = suggest_questions(write, row)
-                        except TailorError as exc:
-                            st.error(str(exc))
-                            found, usage = [], None
-                    if found:
-                        with session() as s, s.begin():
-                            for q in found:
-                                save_answer(
-                                    s,
-                                    user_id(),
-                                    row.id,
-                                    q,
-                                    category="Likely for this job",
-                                    round_id=r.id,
-                                )
-                            if usage is not None:
-                                record(s, user_id(), "interview", usage)
+                    y, n, _ = st.columns([1, 1, 4])
+                    if y.button("Yes, suggest more", key=f"yes_{r.id}", type="primary"):
+                        st.session_state.pop(confirm)
+                        _suggest(row, r.id)
+                    if n.button("Cancel", key=f"no_{r.id}"):
+                        st.session_state.pop(confirm)
                         st.rerun()
                 _questions(row, with_defaults=False, round_id=r.id, kind=PRACTICE)
             with real:

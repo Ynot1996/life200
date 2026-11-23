@@ -66,19 +66,23 @@ def sign_out() -> None:
 _sync_google_user()
 signed_in = "user_id" in st.session_state
 
-find_jobs = st.Page("views/jobs.py", title="Find jobs", icon="🔎", default=not signed_in)
+find_jobs = st.Page(
+    "views/jobs.py", title="Find jobs", icon=":material/travel_explore:", default=not signed_in
+)
 if signed_in:
     pages = [
-        st.Page("views/apply.py", title="Matches and apply", icon="🎯", default=True),
+        st.Page("views/apply.py", title="Matches and apply", icon=":material/bolt:", default=True),
         find_jobs,
-        st.Page("views/life.py", title="My profile", icon="📝"),
-        st.Page("views/tracker.py", title="My applications", icon="📌"),
-        st.Page("views/interview.py", title="Interview prep", icon="🎤"),
+        st.Page("views/life.py", title="My profile", icon=":material/badge:"),
+        st.Page("views/tracker.py", title="My applications", icon=":material/view_kanban:"),
+        st.Page("views/interview.py", title="Interview prep", icon=":material/record_voice_over:"),
     ]
     if st.session_state.get("is_admin"):
-        pages.append(st.Page("views/costs.py", title="AI costs (admin)", icon="💷"))
+        pages.append(
+            st.Page("views/costs.py", title="AI costs (admin)", icon=":material/payments:")
+        )
 else:
-    pages = [find_jobs, st.Page(sign_in_page, title="Sign in", icon="🔑")]
+    pages = [find_jobs, st.Page(sign_in_page, title="Sign in", icon=":material/login:")]
 
 with st.sidebar:
     if signed_in:
