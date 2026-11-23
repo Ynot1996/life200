@@ -80,3 +80,47 @@ def test_rename_category_moves_default_and_saved_questions(db_session: Session) 
     assert set(cats.values()) == {"Why here"}
     assert search(["Tell me about a time you worked in a team."], "TEAM time") != []
     assert search(["Why us?"], "team") == []
+
+
+def test_rounds_practice_and_real_questions(db_session: Session) -> None:
+    from datetime import date
+
+    from life200.services.interview import (
+        REAL,
+        add_practice,
+        list_answers,
+        list_rounds,
+        save_answer,
+        save_round,
+    )
+
+    user = auth.create_user(db_session, "rounds@example.com", "long enough pw")
+    iv = save_interview(db_session, user.id, None, company="Acme", role="Junior dev")
+    final = save_round(db_session, user.id, iv.id, name="Final", on=date(2026, 12, 9))
+    first = save_round(db_session, user.id, iv.id, name="HR", on=date(2026, 12, 2))
+    undated = save_round(db_session, user.id, iv.id, name="Later")
+    assert [r.id for r in list_rounds(db_session, user.id, iv.id)] == [
+        first.id,
+        final.id,
+        undated.id,
+    ]
+
+    save_answer(db_session, user.id, None, "Tell me about yourself.", "My general answer")
+    assert add_practice(db_session, user.id, iv.id, first.id, ["Tell me about yourself."]) == 1
+    assert add_practice(db_session, user.id, iv.id, first.id, ["Tell me about yourself."]) == 0
+    save_answer(
+        db_session,
+        user.id,
+        iv.id,
+        "Tell me about yourself.",
+        "said it",
+        kind=REAL,
+        round_id=first.id,
+    )
+
+    rows = list_answers(db_session, user.id, iv.id)
+    assert sorted((a.kind, a.answer) for a in rows) == [
+        ("practice", "My general answer"),
+        ("real", "said it"),
+    ]
+    assert all(a.round_id == first.id for a in rows)

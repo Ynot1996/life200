@@ -7,12 +7,13 @@ names it adds that are in neither are flagged for the user to check.
 
 import re
 from dataclasses import dataclass
+from datetime import date, time
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from life200.db.models import InterviewAnswerRow, InterviewRow
+from life200.db.models import InterviewAnswerRow, InterviewRoundRow, InterviewRow
 from life200.services.ai_costs import Usage
 from life200.services.tailor import TailorError, Writer, check_facts
 
@@ -47,6 +48,14 @@ DEFAULT_QUESTIONS: dict[str, tuple[str, ...]] = {
 GENERAL_QUESTIONS = tuple(q for qs in DEFAULT_QUESTIONS.values() for q in qs)
 DEFAULT_CATEGORY = {q: c for c, qs in DEFAULT_QUESTIONS.items() for q in qs}
 OTHER = "Other"
+PRACTICE, REAL = "practice", "real"
+ROUND_NAMES = ("HR / recruiter screen", "Technical", "Take-home task", "Hiring manager", "Final")
+ROUND_STATUS = {
+    "upcoming": "🗓️ Upcoming",
+    "done": "⏳ Done, waiting",
+    "passed": "✅ Passed",
+    "rejected": "❌ Rejected",
+}
 
 ANSWER_SYSTEM = """You help one candidate prepare a spoken interview answer.
 Rules:
@@ -194,19 +203,28 @@ def save_answer(
     *,
     category: str | None = None,
     drafts: list[dict[str, Any]] | None = None,
+    round_id: int | None = None,
+    kind: str = PRACTICE,
 ) -> InterviewAnswerRow:
-    """Add the question, or update it if it is already there (same wording).
+    """Add the question, or update it if it is already there (same wording, round and kind).
 
     Only the fields given are changed, so saving drafts never overwrites the chosen answer.
     """
     question = question.strip()
     row = next(
-        (a for a in list_answers(session, user_id, interview_id) if a.question == question), None
+        (
+            a
+            for a in list_answers(session, user_id, interview_id)
+            if a.question == question and a.round_id == round_id and (a.kind or PRACTICE) == kind
+        ),
+        None,
     )
     if row is None:
         row = InterviewAnswerRow(
             user_id=user_id,
             interview_id=interview_id,
+            round_id=round_id,
+            kind=kind,
             question=question,
             answer="",
             warnings=[],
@@ -230,6 +248,70 @@ def delete_answer(session: Session, user_id: int, answer_id: int) -> None:
     row = session.get(InterviewAnswerRow, answer_id)
     if row is not None and row.user_id == user_id:
         session.delete(row)
+
+
+def list_rounds(session: Session, user_id: int, interview_id: int) -> list[InterviewRoundRow]:
+    """Rounds in date order; rounds with no date come last, in the order added."""
+    rows = session.scalars(
+        select(InterviewRoundRow).where(
+            InterviewRoundRow.user_id == user_id, InterviewRoundRow.interview_id == interview_id
+        )
+    )
+    return sorted(rows, key=lambda r: (r.on is None, r.on or date.min, r.at or time.min, r.id))
+
+
+def save_round(
+    session: Session,
+    user_id: int,
+    interview_id: int,
+    round_id: int | None = None,
+    **fields: Any,
+) -> InterviewRoundRow:
+    row = session.get(InterviewRoundRow, round_id) if round_id else None
+    if row is None or row.user_id != user_id:
+        row = InterviewRoundRow(user_id=user_id, interview_id=interview_id)
+        session.add(row)
+    for name in ("name", "on", "at", "status", "notes"):
+        if name in fields:
+            setattr(row, name, fields[name])
+    session.flush()
+    return row
+
+
+def delete_round(session: Session, user_id: int, round_id: int) -> None:
+    row = session.get(InterviewRoundRow, round_id)
+    if row is not None and row.user_id == user_id:
+        session.delete(row)
+
+
+def add_practice(
+    session: Session, user_id: int, interview_id: int, round_id: int | None, questions: list[str]
+) -> int:
+    """Copy chosen questions into a round to practise, starting from the user's general
+    answer when there is one. Returns how many were new."""
+    general = {a.question: a for a in list_answers(session, user_id, None)}
+    have = {
+        a.question
+        for a in list_answers(session, user_id, interview_id)
+        if a.round_id == round_id and (a.kind or PRACTICE) == PRACTICE
+    }
+    added = 0
+    for q in questions:
+        if q.strip() in have:
+            continue
+        g = general.get(q)
+        save_answer(
+            session,
+            user_id,
+            interview_id,
+            q,
+            g.answer if g else None,
+            list(g.warnings) if g else None,
+            category=(g.category if g else None) or DEFAULT_CATEGORY.get(q, OTHER),
+            round_id=round_id,
+        )
+        added += 1
+    return added
 
 
 def rename_category(session: Session, user_id: int, old: str, new: str) -> None:

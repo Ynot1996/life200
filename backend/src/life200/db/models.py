@@ -4,7 +4,7 @@ A table class describes the columns; Alembic turns changes to these classes into
 migrations (versioned scripts that change the real database).
 """
 
-from datetime import date, datetime
+from datetime import date, datetime, time
 from decimal import Decimal
 from typing import Any
 
@@ -17,6 +17,7 @@ from sqlalchemy import (
     Numeric,
     String,
     Text,
+    Time,
     UniqueConstraint,
     func,
 )
@@ -185,6 +186,24 @@ class InterviewRow(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class InterviewRoundRow(Base):
+    """One round of an interview (HR screen, technical, final...), with an optional date."""
+
+    __tablename__ = "interview_rounds"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    interview_id: Mapped[int] = mapped_column(
+        ForeignKey("interviews.id", ondelete="CASCADE"), index=True
+    )
+    name: Mapped[str] = mapped_column(Text, default="")
+    on: Mapped[date | None] = mapped_column(Date)
+    at: Mapped[time | None] = mapped_column(Time)
+    status: Mapped[str] = mapped_column(String(20), default="upcoming", server_default="upcoming")
+    notes: Mapped[str] = mapped_column(Text, default="", server_default="")  # how it went
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class InterviewAnswerRow(Base):
     """A question and the user's prepared answer. No interview id means a general question."""
 
@@ -195,6 +214,12 @@ class InterviewAnswerRow(Base):
     interview_id: Mapped[int | None] = mapped_column(
         ForeignKey("interviews.id", ondelete="CASCADE"), index=True
     )
+    # The round this question is for; none means the whole interview.
+    round_id: Mapped[int | None] = mapped_column(
+        ForeignKey("interview_rounds.id", ondelete="CASCADE"), index=True
+    )
+    # "practice": a question to prepare (mock); "real": one they actually asked.
+    kind: Mapped[str] = mapped_column(String(10), default="practice", server_default="practice")
     question: Mapped[str] = mapped_column(Text)
     category: Mapped[str] = mapped_column(Text, default="", server_default="")
     answer: Mapped[str] = mapped_column(Text, default="")  # the one the user chose and edited

@@ -1,27 +1,37 @@
 """Interview prep: common questions by category, and questions for each company's interview."""
 
 from dataclasses import dataclass, field
+from datetime import date, time
 from typing import Any
 
 import streamlit as st
 
 from life200.core.config import get_settings
-from life200.db.models import InterviewRow, JobPostingRow
+from life200.db.models import InterviewRoundRow, InterviewRow, JobPostingRow
 from life200.services.ai_costs import record
 from life200.services.applications import list_applications
 from life200.services.interview import (
     DEFAULT_CATEGORY,
     DEFAULT_QUESTIONS,
+    GENERAL_QUESTIONS,
     OTHER,
+    PRACTICE,
+    REAL,
+    ROUND_NAMES,
+    ROUND_STATUS,
+    add_practice,
     delete_answer,
     delete_interview,
+    delete_round,
     draft_answers,
     get_interview,
     list_answers,
     list_interviews,
+    list_rounds,
     rename_category,
     save_answer,
     save_interview,
+    save_round,
     search,
     suggest_questions,
 )
@@ -65,13 +75,30 @@ class Item:
     warnings: list[str] = field(default_factory=list)
     drafts: list[dict[str, Any]] = field(default_factory=list)
     answer_id: int | None = None
+    round_id: int | None = None
+    kind: str = PRACTICE
+
+    def where(self) -> dict[str, Any]:
+        return {"round_id": self.round_id, "kind": self.kind}
 
 
-def _items(interview: InterviewRow | None, with_defaults: bool) -> list[Item]:
+def _items(
+    interview: InterviewRow | None, with_defaults: bool, round_id: int | None, kind: str
+) -> list[Item]:
     with session() as s:
         saved = [
-            Item(a.question, a.category or OTHER, a.answer, list(a.warnings), list(a.drafts), a.id)
+            Item(
+                a.question,
+                a.category or OTHER,
+                a.answer,
+                list(a.warnings),
+                list(a.drafts),
+                a.id,
+                a.round_id,
+                a.kind or PRACTICE,
+            )
             for a in list_answers(s, user_id(), interview.id if interview else None)
+            if a.round_id == round_id and (a.kind or PRACTICE) == kind
         ]
     have = {i.question for i in saved}
     defaults = [Item(q, c) for q, c in DEFAULT_CATEGORY.items() if q not in have]
@@ -97,6 +124,7 @@ def _draft(item: Item, interview: InterviewRow | None) -> None:
             item.question,
             category=item.category,
             drafts=[d.as_json() for d in drafts],
+            **item.where(),
         )
         if drafts and drafts[0].usage is not None:
             record(s, user_id(), "interview", drafts[0].usage)
@@ -126,6 +154,7 @@ def _card(item: Item, key: str, interview: InterviewRow | None, categories: list
                                 d.get("text", ""),
                                 list(d.get("warnings", [])),
                                 category=item.category,
+                                **item.where(),
                             )
                         st.session_state.pop(f"ans_{key}", None)
                         st.rerun()
@@ -133,11 +162,20 @@ def _card(item: Item, key: str, interview: InterviewRow | None, categories: list
             st.warning(
                 "Check these, they are not in your profile:\n\n- " + "\n- ".join(item.warnings)
             )
-        text = st.text_area("My answer", item.answer, height=200, key=f"ans_{key}")
+        label = "What I answered, and how it went" if item.kind == REAL else "My answer"
+        text = st.text_area(label, item.answer, height=200, key=f"ans_{key}")
         c1, c2, c3, c4 = st.columns([1, 1.3, 2, 1], vertical_alignment="bottom")
         if c1.button("Save", key=f"save_{key}", type="primary"):
             with session() as s, s.begin():
-                save_answer(s, user_id(), interview_id, item.question, text, category=item.category)
+                save_answer(
+                    s,
+                    user_id(),
+                    interview_id,
+                    item.question,
+                    text,
+                    category=item.category,
+                    **item.where(),
+                )
             st.rerun()
         label = "✍️ Draft with AI" if not item.drafts else "✍️ New drafts"
         if c2.button(label, key=f"draft_{key}", disabled=not models):
@@ -150,7 +188,9 @@ def _card(item: Item, key: str, interview: InterviewRow | None, categories: list
         )
         if move != item.category:
             with session() as s, s.begin():
-                save_answer(s, user_id(), interview_id, item.question, category=move)
+                save_answer(
+                    s, user_id(), interview_id, item.question, category=move, **item.where()
+                )
             st.rerun()
         if item.answer_id is not None and c4.button("Delete", key=f"del_{key}"):
             with session() as s, s.begin():
@@ -158,12 +198,17 @@ def _card(item: Item, key: str, interview: InterviewRow | None, categories: list
             st.rerun()
 
 
-def _questions(interview: InterviewRow | None, with_defaults: bool) -> None:
-    items = _items(interview, with_defaults)
-    defaults = list(DEFAULT_QUESTIONS) if with_defaults else []
+def _questions(
+    interview: InterviewRow | None,
+    with_defaults: bool,
+    round_id: int | None = None,
+    kind: str = PRACTICE,
+) -> None:
+    items = _items(interview, with_defaults, round_id, kind)
+    defaults = list(DEFAULT_QUESTIONS) if with_defaults or kind == PRACTICE else []
     found = sorted({i.category for i in items} - set(defaults) - {OTHER})
     categories = [*defaults, *found, OTHER]
-    prefix = f"i{interview.id}" if interview else "g"
+    prefix = f"i{interview.id}r{round_id}{kind}" if interview else "g"
 
     shown = set(search([i.question for i in items], query)) if query else None
     any_shown = False
@@ -179,8 +224,9 @@ def _questions(interview: InterviewRow | None, with_defaults: bool) -> None:
     if not any_shown:
         st.caption("No questions match." if query else "No questions yet.")
 
+    title = "Add a question they asked" if kind == REAL else "Add a question or category"
     with (
-        st.expander("Add a question or category", icon=":material/add:"),
+        st.expander(title, icon=":material/add:"),
         st.form(f"add_q_{prefix}", clear_on_submit=True, border=False),
     ):
         new_q = st.text_input("Question")
@@ -196,8 +242,12 @@ def _questions(interview: InterviewRow | None, with_defaults: bool) -> None:
                     interview.id if interview else None,
                     new_q,
                     category=chosen or OTHER,
+                    round_id=round_id,
+                    kind=kind,
                 )
             st.rerun()
+    if not with_defaults:
+        return
     with (
         st.expander("Rename a category", icon=":material/edit:"),
         st.form(f"rename_{prefix}", border=False),
@@ -219,21 +269,23 @@ with general:
 
 with company:
     with session() as s:
-        interviews = [(i.id, i.company, i.role, i.when) for i in list_interviews(s, user_id())]
-    options = [None, *[i[0] for i in interviews]]
+        interviews = [(i.id, i.company, i.role) for i in list_interviews(s, user_id())]
     names = {i[0]: " · ".join(x for x in i[1:] if x) or "(untitled)" for i in interviews}
+    if "new_interview" in st.session_state:
+        st.session_state["pick_interview"] = st.session_state.pop("new_interview")
     chosen = st.selectbox(
         "Interview",
-        options,
+        [None, *names],
         index=1 if interviews else 0,
         format_func=lambda i: "+ New interview" if i is None else names[i],
+        key="pick_interview",
     )
 
     if chosen is None:
         with session() as s:
             apps = list_applications(s, user_id())
         pick = st.selectbox(
-            "Start from one of my applications (optional)",
+            "Fill in from one of my applications (optional)",
             [None, *apps["Job id"].tolist()],
             format_func=lambda j: (
                 "Type it in myself"
@@ -243,34 +295,57 @@ with company:
                 )
             ),
         )
-        if st.button("Create interview", type="primary"):
-            fields = {"company": "", "role": "", "job_description": ""}
-            with session() as s, s.begin():
-                if pick is not None and (job := s.get(JobPostingRow, int(pick))) is not None:
-                    fields = {
-                        "company": job.company or "",
-                        "role": job.title,
-                        "job_description": job.description,
-                    }
-                save_interview(s, user_id(), None, **fields)
-            st.rerun()
+        job = None
+        if pick is not None:
+            with session() as s:
+                job = s.get(JobPostingRow, int(pick))
+                if job is not None:
+                    s.expunge(job)
+        with st.form(f"new_interview_{pick}"):
+            c1, c2 = st.columns(2)
+            company_name = c1.text_input("Company *", job.company or "" if job else "")
+            role = c2.text_input("Role *", job.title if job else "")
+            jd = st.text_area(
+                "Job description (optional, makes answers fit the role)",
+                job.description if job else "",
+                height=150,
+            )
+            if st.form_submit_button("Create interview", type="primary"):
+                if not company_name.strip() or not role.strip():
+                    st.error("Add the company and the role.")
+                else:
+                    with session() as s, s.begin():
+                        new = save_interview(
+                            s,
+                            user_id(),
+                            None,
+                            company=company_name.strip(),
+                            role=role.strip(),
+                            job_description=jd,
+                        )
+                        save_round(s, user_id(), new.id, name=ROUND_NAMES[0])
+                        st.session_state["new_interview"] = new.id
+                    st.rerun()
         st.stop()
 
     with session() as s:
         row = get_interview(s, user_id(), chosen)
         assert row is not None
         s.expunge(row)
+        rounds = list_rounds(s, user_id(), row.id)
+        for r in rounds:
+            s.expunge(r)
 
-    with st.expander("Interview details", expanded=not row.company), st.form("details"):
-        c1, c2, c3 = st.columns([2, 2, 1])
+    with st.expander("Interview details"), st.form("details"):
+        c1, c2 = st.columns(2)
         company_name = c1.text_input("Company", row.company)
         role = c2.text_input("Role", row.role)
-        when = c3.text_input("When", row.when, placeholder="Tue 2 Dec 10:00")
         jd = st.text_area("Job description", row.job_description, height=200)
         notes = st.text_area(
             "Notes", row.notes, height=100, placeholder="Interviewers, format, what you researched"
         )
-        if st.form_submit_button("Save details", type="primary"):
+        c1, c2 = st.columns([1, 4])
+        if c1.form_submit_button("Save details", type="primary"):
             with session() as s, s.begin():
                 save_interview(
                     s,
@@ -278,43 +353,127 @@ with company:
                     row.id,
                     company=company_name,
                     role=role,
-                    when=when,
                     job_description=jd,
                     notes=notes,
                 )
             st.rerun()
-
-    if st.button(
-        "💡 Suggest likely questions for this job", disabled=not models or not row.company
-    ):
-        found_writer = writer_from_settings(
-            settings, None if picked_model == AUTO else picked_model, quick=True
-        )
-        assert found_writer is not None
-        write, label = found_writer
-        with st.spinner(f"Reading the job description with {label}…"):
-            try:
-                found, usage = suggest_questions(write, row)
-            except TailorError as exc:
-                st.error(str(exc))
-                found, usage = [], None
-        if found:
+        if c2.form_submit_button("Delete this interview", icon=":material/delete:"):
             with session() as s, s.begin():
-                existing = {a.question for a in list_answers(s, user_id(), row.id)}
-                for q in found:
-                    if q not in existing:
-                        save_answer(s, user_id(), row.id, q, category="Likely for this job")
-                if usage is not None:
-                    record(s, user_id(), "interview", usage)
+                delete_interview(s, user_id(), row.id)
             st.rerun()
 
-    st.caption(
-        "Questions for this company. Answers here also use the job description, so they "
-        "fit this role."
-    )
-    _questions(row, with_defaults=False)
+    def _when(r: InterviewRoundRow) -> str:
+        if r.on is None:
+            return ""
+        return r.on.strftime("%a %d %b") + (r.at.strftime(" %H:%M") if r.at else "")
 
-    if st.button("Delete this interview", icon=":material/delete:"):
-        with session() as s, s.begin():
-            delete_interview(s, user_id(), row.id)
-        st.rerun()
+    labels = [
+        f"{ROUND_STATUS.get(r.status, '')[:2]} {n + 1}. {r.name or 'Round'}"
+        + (f" · {_when(r)}" if _when(r) else "")
+        for n, r in enumerate(rounds)
+    ]
+    tabs = st.tabs([*labels, "+ Add a round"])
+
+    with tabs[-1], st.form("add_round", clear_on_submit=True):
+        c1, c2, c3 = st.columns([2, 1, 1])
+        kind_of = c1.selectbox("Round", [*ROUND_NAMES, "Other (type below)"])
+        other_name = c1.text_input("Name", placeholder="e.g. Case study with the team")
+        day = c2.date_input("Date (optional)", value=None)
+        at = c3.time_input("Time (optional)", value=None, step=900)
+        if st.form_submit_button("Add round", type="primary"):
+            name = other_name.strip() or (kind_of if kind_of in ROUND_NAMES else "Round")
+            with session() as s, s.begin():
+                save_round(s, user_id(), row.id, name=name, on=day, at=at)
+            st.rerun()
+
+    for tab, r in zip(tabs, rounds, strict=False):
+        with tab:
+            with st.expander("Round details", expanded=False), st.form(f"round_{r.id}"):
+                c1, c2, c3, c4 = st.columns([2, 1, 1, 1.4])
+                name = c1.text_input("Name", r.name)
+                day_v: date | None = c2.date_input("Date", value=r.on)
+                at_v: time | None = c3.time_input("Time", value=r.at, step=900)
+                status = c4.selectbox(
+                    "Status",
+                    list(ROUND_STATUS),
+                    index=list(ROUND_STATUS).index(r.status) if r.status in ROUND_STATUS else 0,
+                    format_func=ROUND_STATUS.__getitem__,
+                )
+                how = st.text_area(
+                    "How it went", r.notes, height=80, placeholder="Who you met, what to improve"
+                )
+                b1, b2 = st.columns([1, 4])
+                if b1.form_submit_button("Save", type="primary"):
+                    with session() as s, s.begin():
+                        save_round(
+                            s,
+                            user_id(),
+                            row.id,
+                            r.id,
+                            name=name,
+                            on=day_v,
+                            at=at_v,
+                            status=status,
+                            notes=how,
+                        )
+                    st.rerun()
+                if b2.form_submit_button("Delete round", icon=":material/delete:"):
+                    with session() as s, s.begin():
+                        delete_round(s, user_id(), r.id)
+                    st.rerun()
+
+            mock, real = st.tabs(["🎯 Practice (mock)", "📝 Real questions asked"])
+            with mock:
+                st.caption(
+                    "Pick the questions to practise for this round. Answers here also use the "
+                    "job description, so they fit this role."
+                )
+                c1, c2 = st.columns([4, 1], vertical_alignment="bottom")
+                picks = c1.multiselect(
+                    "Add from common questions",
+                    list(GENERAL_QUESTIONS),
+                    key=f"picks_{r.id}",
+                    placeholder="Choose questions (your saved answers come along)",
+                )
+                if c2.button("Add", key=f"addp_{r.id}", disabled=not picks):
+                    with session() as s, s.begin():
+                        add_practice(s, user_id(), row.id, r.id, picks)
+                    st.session_state.pop(f"picks_{r.id}", None)
+                    st.rerun()
+                if st.button(
+                    "💡 Suggest likely questions for this job",
+                    key=f"suggest_{r.id}",
+                    disabled=not models,
+                ):
+                    found_writer = writer_from_settings(
+                        settings, None if picked_model == AUTO else picked_model, quick=True
+                    )
+                    assert found_writer is not None
+                    write, wlabel = found_writer
+                    with st.spinner(f"Reading the job description with {wlabel}…"):
+                        try:
+                            found, usage = suggest_questions(write, row)
+                        except TailorError as exc:
+                            st.error(str(exc))
+                            found, usage = [], None
+                    if found:
+                        with session() as s, s.begin():
+                            for q in found:
+                                save_answer(
+                                    s,
+                                    user_id(),
+                                    row.id,
+                                    q,
+                                    category="Likely for this job",
+                                    round_id=r.id,
+                                )
+                            if usage is not None:
+                                record(s, user_id(), "interview", usage)
+                        st.rerun()
+                _questions(row, with_defaults=False, round_id=r.id, kind=PRACTICE)
+            with real:
+                st.caption(
+                    "After the round, write down what they really asked and how you answered. "
+                    "Next time, draft a better answer here."
+                )
+                _questions(row, with_defaults=False, round_id=r.id, kind=REAL)
