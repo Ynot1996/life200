@@ -110,6 +110,8 @@ def claude_writer(api_key: str, model: str) -> Writer:
 
 
 TOTAL_SECONDS = 150  # stop trying further backup models after this long
+BUSY_SECONDS = 300  # after a model says it is busy, try it last for this long
+_busy_until: dict[str, float] = {}
 
 
 def _busy(exc: Exception) -> bool:
@@ -119,7 +121,14 @@ def _busy(exc: Exception) -> bool:
     return isinstance(exc, genai_errors.ClientError) and exc.code in (404, 429)
 
 
-def gemini_writer(api_key: str, model: str, fallback: str | None = None) -> Writer:
+def gemini_writer(
+    api_key: str,
+    model: str,
+    fallback: str | None = None,
+    *,
+    quick: bool = False,
+    keep_first: bool = False,
+) -> Writer:
     """Gemini, moving down a list of free models (comma-separated `fallback`) when one is busy."""
     client = gemini_client(api_key)
 
@@ -127,7 +136,14 @@ def gemini_writer(api_key: str, model: str, fallback: str | None = None) -> Writ
         response = client.models.generate_content(
             model=name,
             contents=user,
-            config=types.GenerateContentConfig(system_instruction=system, max_output_tokens=16000),
+            config=types.GenerateContentConfig(
+                system_instruction=system,
+                max_output_tokens=16000,
+                # Short tasks (interview answers) need little thinking; it is most of the wait.
+                thinking_config=types.ThinkingConfig(thinking_level=types.ThinkingLevel.LOW)
+                if quick
+                else None,
+            ),
         )
         meta = response.usage_metadata
         usage = None
@@ -141,11 +157,19 @@ def gemini_writer(api_key: str, model: str, fallback: str | None = None) -> Writ
 
     def write(system: str, user: str) -> tuple[str, Usage | None]:
         started = time.monotonic()
-        for i, name in enumerate(names):
+        # Models that were busy a moment ago go last, so nobody waits on them again.
+        # A model the user picked is always tried first.
+        rest = names[1:] if keep_first else names
+        order = sorted(rest, key=lambda m: _busy_until.get(m, 0) > started)
+        if keep_first:
+            order = [names[0], *order]
+        for i, name in enumerate(order):
             try:
                 return call(name, system, user)
             except Exception as exc:
-                last = i == len(names) - 1
+                if _busy(exc):
+                    _busy_until[name] = time.monotonic() + BUSY_SECONDS
+                last = i == len(order) - 1
                 if last or not _busy(exc) or time.monotonic() - started > TOTAL_SECONDS:
                     raise
         raise AssertionError("unreachable")
@@ -167,21 +191,44 @@ def with_backup(first: Writer, backup: Writer) -> Writer:
     return write
 
 
-def writer_from_settings(settings: Settings) -> tuple[Writer, str] | None:
-    """Claude if its key is set (Gemini as backup), else Gemini, else None, plus a UI label."""
-    gemini = None
+def model_choices(settings: Settings) -> list[str]:
+    """Models a user can pick, best first: Claude if its key is set, then the free Geminis."""
+    out: list[str] = []
+    if settings.anthropic_api_key is not None:
+        out.append(settings.claude_model)
     if settings.gemini_api_key is not None:
+        chain = [settings.gemini_model, *(settings.gemini_fallback_model or "").split(",")]
+        out += [m.strip() for m in chain if m.strip() and m.strip() not in out]
+    return out
+
+
+def writer_from_settings(
+    settings: Settings, model: str | None = None, *, quick: bool = False
+) -> tuple[Writer, str] | None:
+    """A writer and its label. `model` puts that model first; the others stay as backups.
+
+    Claude if its key is set (Gemini as backup), else Gemini, else None.
+    """
+    choices = model_choices(settings)
+    if not choices:
+        return None
+    first = model if model in choices else choices[0]
+    geminis = [m for m in choices if m.startswith("gemini")]
+    gemini = None
+    if settings.gemini_api_key is not None and geminis:
+        order = [first, *geminis] if first in geminis else geminis
         gemini = gemini_writer(
             settings.gemini_api_key.get_secret_value(),
-            settings.gemini_model,
-            settings.gemini_fallback_model,
+            order[0],
+            ",".join(order[1:]),
+            quick=quick,
+            keep_first=model is not None,
         )
-    if settings.anthropic_api_key is not None:
-        claude = claude_writer(settings.anthropic_api_key.get_secret_value(), settings.claude_model)
-        return (with_backup(claude, gemini) if gemini else claude), settings.claude_model
-    if gemini is not None:
-        return gemini, settings.gemini_model
-    return None
+    if settings.anthropic_api_key is not None and not first.startswith("gemini"):
+        claude = claude_writer(settings.anthropic_api_key.get_secret_value(), first)
+        return (with_backup(claude, gemini) if gemini else claude), first
+    assert gemini is not None
+    return gemini, first
 
 
 def tailor(write: Writer, profile_text: str, job: dict[str, Any]) -> Tailored:

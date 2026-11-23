@@ -196,8 +196,11 @@ class InterviewAnswerRow(Base):
         ForeignKey("interviews.id", ondelete="CASCADE"), index=True
     )
     question: Mapped[str] = mapped_column(Text)
-    answer: Mapped[str] = mapped_column(Text, default="")
+    category: Mapped[str] = mapped_column(Text, default="", server_default="")
+    answer: Mapped[str] = mapped_column(Text, default="")  # the one the user chose and edited
     warnings: Mapped[list[str]] = mapped_column(_JSON, default=list)
+    # AI drafts to choose from: [{"text", "warnings", "model"}]
+    drafts: Mapped[list[dict[str, Any]]] = mapped_column(_JSON, default=list, server_default="[]")
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )

@@ -52,3 +52,31 @@ def test_questions_and_answers_are_per_user_and_interview(db_session: Session) -
     reply = "1. What SQL have you used?\n- Tell me about a dashboard you built.\n\n"
     found, _ = suggest_questions(lambda s, u: (reply, None), iv)
     assert found == ["What SQL have you used?", "Tell me about a dashboard you built."]
+
+
+def test_several_drafts_in_one_call() -> None:
+    from life200.services.interview import draft_answers
+
+    reply = "First answer about 5 hours.\n===\nSecond answer, 1 hour.\n===\n"
+    drafts = draft_answers(lambda s, u: (reply, None), PROFILE, "Q?", count=2)
+    assert [d.answer for d in drafts] == ["First answer about 5 hours.", "Second answer, 1 hour."]
+
+
+def test_drafts_never_overwrite_the_chosen_answer(db_session: Session) -> None:
+    user = auth.create_user(db_session, "iv3@example.com", "long enough pw")
+    save_answer(db_session, user.id, None, "Tell me about yourself.", "Mine")
+    row = save_answer(db_session, user.id, None, "Tell me about yourself.", drafts=[{"text": "AI"}])
+    assert row.answer == "Mine"
+    assert row.category == "About you"  # default category for a default question
+
+
+def test_rename_category_moves_default_and_saved_questions(db_session: Session) -> None:
+    from life200.services.interview import DEFAULT_QUESTIONS, rename_category, search
+
+    user = auth.create_user(db_session, "iv4@example.com", "long enough pw")
+    rename_category(db_session, user.id, "Motivation", "Why here")
+    cats = {a.question: a.category for a in list_answers(db_session, user.id, None)}
+    assert set(cats) == set(DEFAULT_QUESTIONS["Motivation"])
+    assert set(cats.values()) == {"Why here"}
+    assert search(["Tell me about a time you worked in a team."], "TEAM time") != []
+    assert search(["Why us?"], "team") == []

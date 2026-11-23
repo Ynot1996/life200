@@ -321,3 +321,27 @@ def test_gemini_moves_down_free_models_when_busy(monkeypatch: pytest.MonkeyPatch
     monkeypatch.setattr(t, "gemini_client", lambda key: fake)
     assert t.gemini_writer("k", "a", "b, c")("s", "u")[0] == "done"
     assert tried == ["a", "b", "c"]
+
+
+def test_busy_model_is_tried_last_next_time(monkeypatch: pytest.MonkeyPatch) -> None:
+    from types import SimpleNamespace
+
+    from google.genai import errors as genai_errors
+
+    from life200.services import tailor as t
+
+    monkeypatch.setattr(t, "_busy_until", {})
+    tried: list[str] = []
+
+    def generate_content(model: str, **kw: object) -> object:
+        tried.append(model)
+        if model == "a":
+            raise genai_errors.ServerError(503, {"error": {"message": "busy"}})
+        return SimpleNamespace(text="ok", usage_metadata=None)
+
+    fake = SimpleNamespace(models=SimpleNamespace(generate_content=generate_content))
+    monkeypatch.setattr(t, "gemini_client", lambda key: fake)
+    write = t.gemini_writer("k", "a", "b")
+    write("s", "u")
+    write("s", "u")
+    assert tried == ["a", "b", "b"]  # second time, busy "a" is skipped

@@ -33,7 +33,9 @@ class Settings(BaseSettings):
     gemini_api_key: SecretStr | None = None
     gemini_model: str = "gemini-3.8-flash"  # newest Flash on the API as of 2026-11-20
     # Free backups, tried in order when the main model is overloaded (comma separated).
-    gemini_fallback_model: str | None = "gemini-3.7-flash,gemini-3.5-flash,gemini-3.5-flash-lite"
+    gemini_fallback_model: str | None = (
+        "gemini-3.7-flash,gemini-3.5-flash,gemini-3.5-flash-lite,gemini-3.1-flash-lite"
+    )
 
     @field_validator("*", mode="before")
     @classmethod

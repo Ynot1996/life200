@@ -7,6 +7,7 @@ names it adds that are in neither are flagged for the user to check.
 
 import re
 from dataclasses import dataclass
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -15,22 +16,37 @@ from life200.db.models import InterviewAnswerRow, InterviewRow
 from life200.services.ai_costs import Usage
 from life200.services.tailor import TailorError, Writer, check_facts
 
-GENERAL_QUESTIONS = (
-    "Tell me about yourself.",
-    "Why do you want this role?",
-    "Why do you want to work at this company?",
-    "What are your greatest strengths?",
-    "What is a weakness you are working on?",
-    "Tell me about a time you faced a difficult challenge.",
-    "Tell me about a time you worked in a team.",
-    "Tell me about a time you disagreed with someone. How did you handle it?",
-    "Tell me about a time you failed, and what you learned.",
-    "Tell me about a project you are proud of.",
-    "Tell me about a time you showed leadership.",
-    "Where do you see yourself in five years?",
-    "Why should we hire you?",
-    "Do you have any questions for us?",
-)
+# Default categories and their questions. Users can add questions and categories, move
+# questions between them, and rename categories.
+DEFAULT_QUESTIONS: dict[str, tuple[str, ...]] = {
+    "About you": (
+        "Tell me about yourself.",
+        "Walk me through your CV.",
+        "What are your greatest strengths?",
+        "What is a weakness you are working on?",
+    ),
+    "Motivation": (
+        "Why do you want this role?",
+        "Why do you want to work at this company?",
+        "Why should we hire you?",
+    ),
+    "Experience and projects": (
+        "Tell me about a project you are proud of.",
+        "What did you learn in your last internship or job?",
+    ),
+    "Behavioural (STAR)": (
+        "Tell me about a time you faced a difficult challenge.",
+        "Tell me about a time you worked in a team.",
+        "Tell me about a time you disagreed with someone. How did you handle it?",
+        "Tell me about a time you failed, and what you learned.",
+        "Tell me about a time you showed leadership.",
+    ),
+    "Career goals": ("Where do you see yourself in five years?",),
+    "Questions for them": ("Do you have any questions for us?",),
+}
+GENERAL_QUESTIONS = tuple(q for qs in DEFAULT_QUESTIONS.values() for q in qs)
+DEFAULT_CATEGORY = {q: c for c, qs in DEFAULT_QUESTIONS.items() for q in qs}
+OTHER = "Other"
 
 ANSWER_SYSTEM = """You help one candidate prepare a spoken interview answer.
 Rules:
@@ -42,7 +58,9 @@ Rules:
 - When a job is given, link the answer to what that job asks for.
 - First person, natural spoken English (or the job ad's language), 150-250 words, about
   1-2 minutes aloud. No headings. End with a short line starting "Tip:" on delivery or a
-  follow-up the interviewer may ask."""
+  follow-up the interviewer may ask.
+- When asked for several answers, make each one genuinely different (another story,
+  angle or emphasis), and put a line containing only === between them."""
 
 QUESTIONS_SYSTEM = """You help a candidate prepare for an interview at one company.
 From the job description, write the 8 questions this interviewer is most likely to ask:
@@ -56,6 +74,10 @@ class Draft:
     warnings: list[str]
     usage: Usage | None
 
+    def as_json(self) -> dict[str, Any]:
+        model = self.usage.model if self.usage else ""
+        return {"text": self.answer, "warnings": self.warnings, "model": model}
+
 
 def _job_block(interview: InterviewRow | None) -> str:
     if interview is None:
@@ -66,21 +88,34 @@ def _job_block(interview: InterviewRow | None) -> str:
     )
 
 
-def draft_answer(
-    write: Writer, profile_text: str, question: str, interview: InterviewRow | None = None
-) -> Draft:
+def draft_answers(
+    write: Writer,
+    profile_text: str,
+    question: str,
+    interview: InterviewRow | None = None,
+    count: int = 1,
+) -> list[Draft]:
+    """`count` different answers to one question, in one AI call (faster than several)."""
     if not profile_text.strip():
         raise TailorError("your profile is empty; add your experience and stories first")
     job = _job_block(interview)
-    user = f"<profile>\n{profile_text}\n</profile>{job}\n\n<question>{question}</question>"
+    ask = f"\n\nWrite {count} different answers." if count > 1 else ""
+    user = f"<profile>\n{profile_text}\n</profile>{job}\n\n<question>{question}</question>{ask}"
     try:
         reply, usage = write(ANSWER_SYSTEM, user)
     except TailorError:
         raise
     except Exception as exc:
         raise TailorError(f"the AI service failed: {type(exc).__name__}") from exc
-    answer = reply.strip()
-    return Draft(answer, check_facts(answer, profile_text + job + question), usage)
+    parts = [p.strip() for p in re.split(r"^\s*={3,}\s*$", reply, flags=re.MULTILINE)]
+    source = profile_text + job + question
+    return [Draft(p, check_facts(p, source), usage) for p in parts if p][: max(count, 1)]
+
+
+def draft_answer(
+    write: Writer, profile_text: str, question: str, interview: InterviewRow | None = None
+) -> Draft:
+    return draft_answers(write, profile_text, question, interview)[0]
 
 
 def suggest_questions(write: Writer, interview: InterviewRow) -> tuple[list[str], Usage | None]:
@@ -154,20 +189,39 @@ def save_answer(
     user_id: int,
     interview_id: int | None,
     question: str,
-    answer: str,
+    answer: str | None = None,
     warnings: list[str] | None = None,
+    *,
+    category: str | None = None,
+    drafts: list[dict[str, Any]] | None = None,
 ) -> InterviewAnswerRow:
-    """Add the question, or update its answer if it is already there (same wording)."""
+    """Add the question, or update it if it is already there (same wording).
+
+    Only the fields given are changed, so saving drafts never overwrites the chosen answer.
+    """
     question = question.strip()
     row = next(
         (a for a in list_answers(session, user_id, interview_id) if a.question == question), None
     )
     if row is None:
-        row = InterviewAnswerRow(user_id=user_id, interview_id=interview_id, question=question)
+        row = InterviewAnswerRow(
+            user_id=user_id,
+            interview_id=interview_id,
+            question=question,
+            answer="",
+            warnings=[],
+            drafts=[],
+            category=DEFAULT_CATEGORY.get(question, OTHER),
+        )
         session.add(row)
-    row.answer = answer
+    if answer is not None:
+        row.answer = answer
     if warnings is not None:
         row.warnings = warnings
+    if category is not None:
+        row.category = category.strip() or OTHER
+    if drafts is not None:
+        row.drafts = drafts
     session.flush()
     return row
 
@@ -176,3 +230,25 @@ def delete_answer(session: Session, user_id: int, answer_id: int) -> None:
     row = session.get(InterviewAnswerRow, answer_id)
     if row is not None and row.user_id == user_id:
         session.delete(row)
+
+
+def rename_category(session: Session, user_id: int, old: str, new: str) -> None:
+    """Rename a category everywhere. Default questions in it are saved so they move too."""
+    new = new.strip()
+    if not new or new == old:
+        return
+    for q in DEFAULT_QUESTIONS.get(old, ()):
+        save_answer(session, user_id, None, q)
+    for row in session.scalars(
+        select(InterviewAnswerRow).where(
+            InterviewAnswerRow.user_id == user_id, InterviewAnswerRow.category == old
+        )
+    ):
+        row.category = new
+    session.flush()
+
+
+def search(questions: list[str], text: str) -> list[str]:
+    """Questions containing every word typed, ignoring case."""
+    words = text.casefold().split()
+    return [q for q in questions if all(w in q.casefold() for w in words)]
