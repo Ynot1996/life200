@@ -124,3 +124,26 @@ def test_rounds_practice_and_real_questions(db_session: Session) -> None:
         ("real", "said it"),
     ]
     assert all(a.round_id == first.id for a in rows)
+
+
+def test_length_instructions_and_rewrite_reach_the_prompt() -> None:
+    from life200.services.interview import draft_answers
+
+    seen: list[str] = []
+
+    def write(system: str, user: str) -> tuple[str, None]:
+        seen.append(user)
+        return "Rewritten answer", None
+
+    out = draft_answers(
+        write,
+        "I built ReguLens.",
+        "Tell me about yourself.",
+        length="Short",
+        instructions="sound more confident",
+        base="My old answer",
+    )
+    assert out[0].answer == "Rewritten answer"
+    assert "80-120 words" in seen[0]
+    assert "sound more confident" in seen[0]
+    assert "My old answer" in seen[0]

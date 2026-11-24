@@ -65,8 +65,8 @@ Rules:
 - Behavioural questions ("tell me about a time..."): pick the single best story and use STAR
   (Situation, Task, Action, Result), with the result's numbers if the profile has them.
 - When a job is given, link the answer to what that job asks for.
-- First person, natural spoken English (or the job ad's language), 150-250 words, about
-  1-2 minutes aloud. No headings. End with a short line starting "Tip:" on delivery or a
+- First person, natural spoken English (or the job ad's language), at the length asked
+  for. No headings. End with a short line starting "Tip:" on delivery or a
   follow-up the interviewer may ask.
 - When asked for several answers, make each one genuinely different (another story,
   angle or emphasis), and put a line containing only === between them."""
@@ -75,6 +75,13 @@ QUESTIONS_SYSTEM = """You help a candidate prepare for an interview at one compa
 From the job description, write the 8 questions this interviewer is most likely to ask:
 technical or role-specific ones first, then behavioural ones about what the job needs.
 Return ONLY the questions, one per line, no numbering."""
+
+
+LENGTHS = {
+    "Short": "80-120 words, about 45 seconds aloud",
+    "Medium": "150-250 words, about 1-2 minutes aloud",
+    "Long": "300-400 words, about 2-3 minutes aloud",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,12 +110,26 @@ def draft_answers(
     question: str,
     interview: InterviewRow | None = None,
     count: int = 1,
+    *,
+    length: str = "Medium",
+    instructions: str = "",
+    base: str = "",
 ) -> list[Draft]:
-    """`count` different answers to one question, in one AI call (faster than several)."""
+    """`count` different answers to one question, in one AI call (faster than several).
+
+    `instructions` are the user's own wishes ("more confident", "mention SQL"); `base` is an
+    answer to rewrite instead of starting from scratch.
+    """
     if not profile_text.strip():
         raise TailorError("your profile is empty; add your experience and stories first")
     job = _job_block(interview)
-    ask = f"\n\nWrite {count} different answers." if count > 1 else ""
+    ask = f"\n\nLength: {LENGTHS.get(length, LENGTHS['Medium'])}."
+    if base.strip():
+        ask += f"\n\nRewrite this answer, keeping what works:\n<answer>\n{base}\n</answer>"
+    if instructions.strip():
+        ask += f"\n\nThe candidate asks: {instructions.strip()}"
+    if count > 1:
+        ask += f"\n\nWrite {count} different answers."
     user = f"<profile>\n{profile_text}\n</profile>{job}\n\n<question>{question}</question>{ask}"
     try:
         reply, usage = write(ANSWER_SYSTEM, user)
@@ -117,7 +138,7 @@ def draft_answers(
     except Exception as exc:
         raise TailorError(f"the AI service failed: {type(exc).__name__}") from exc
     parts = [p.strip() for p in re.split(r"^\s*={3,}\s*$", reply, flags=re.MULTILINE)]
-    source = profile_text + job + question
+    source = profile_text + job + question + base
     return [Draft(p, check_facts(p, source), usage) for p in parts if p][: max(count, 1)]
 
 
